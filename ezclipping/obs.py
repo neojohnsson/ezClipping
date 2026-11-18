@@ -2,6 +2,7 @@
 
 import json
 import os
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
@@ -26,18 +27,30 @@ def websocket_settings(path: Path = WS_CONFIG) -> dict:
     }
 
 
+def ensure_replay_buffer(conn) -> None:
+    """Start OBS's replay buffer if it's off. Raises OBSSDKError if it's disabled in OBS's output settings."""
+    if not conn.request("get_replay_buffer_status").output_active:
+        conn.request("start_replay_buffer")
+
+
 class Obs:
     """One live connection to OBS: a request socket plus an event socket for ReplayBufferSaved."""
 
     def __init__(self, host: str, port: int, password: str, on_saved: Callable[[Path], None]):
         kw = {"host": host, "port": port, "password": password, "timeout": 3}
         self.req = obsws.ReqClient(**kw)
+        self.lock = threading.Lock()
         self.events = obsws.EventClient(**kw)
 
         def on_replay_buffer_saved(data):  # obsws-python routes events by this function name
             on_saved(Path(data.saved_replay_path))
 
         self.events.callback.register(on_replay_buffer_saved)
+
+    def request(self, name: str, *args):
+        """One obs-websocket request, e.g. request("save_replay_buffer"). Locked: threads share the socket."""
+        with self.lock:
+            return getattr(self.req, name)(*args)
 
     @property
     def alive(self) -> bool:

@@ -45,7 +45,8 @@ Each task ends with tests + lint green and a git commit.
   - Files: `ezclipping/obs.py`, `ezclipping/__main__.py`, `tests/test_obs.py`
   - Size: S–M
 
-- [ ] **T4: Clip button**
+- [x] **T4: Clip button**. Done: Mouse 4 in Apex → instant beep + save. One save per press (probe-verified), plus a
+  5 s cooldown against double presses. Low beep = didn't save. Replay buffer auto-starts on connect.
   - Does: `hotkey.py` polls `GetAsyncKeyState` at ~30 Hz with edge detection (fires once per press). On press: `SaveReplayBuffer` + beep. On connect: start the replay buffer if it's off (toggle).
   - Acceptance:
     - Keyboard key and mouse side button both trigger a save while Apex is focused.

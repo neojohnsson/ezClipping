@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from ezclipping import obs
 from ezclipping.__main__ import DEFAULTS, clip_box, load_config, save_config
@@ -24,6 +25,27 @@ class WebsocketSettings(unittest.TestCase):
             broken.write_text("{not json")
             self.assertEqual(obs.websocket_settings(Path(tmp) / "nope.json"), {})
             self.assertEqual(obs.websocket_settings(broken), {})
+
+
+class FakeConn:
+    def __init__(self, active: bool):
+        self.active, self.calls = active, []
+
+    def request(self, name, *args):
+        self.calls.append(name)
+        return SimpleNamespace(output_active=self.active) if name == "get_replay_buffer_status" else None
+
+
+class EnsureReplayBuffer(unittest.TestCase):
+    def test_starts_replay_buffer_when_off(self):
+        conn = FakeConn(active=False)
+        obs.ensure_replay_buffer(conn)
+        self.assertIn("start_replay_buffer", conn.calls)
+
+    def test_leaves_running_replay_buffer_alone(self):
+        conn = FakeConn(active=True)
+        obs.ensure_replay_buffer(conn)
+        self.assertNotIn("start_replay_buffer", conn.calls)
 
 
 class Config(unittest.TestCase):
