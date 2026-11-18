@@ -15,7 +15,7 @@ from pathlib import Path
 import pystray
 from PIL import Image, ImageDraw
 
-from ezclipping import hotkey, obs, render
+from ezclipping import hotkey, obs, render, settings
 from ezclipping.hud import Box, box_for_res, visible
 
 APP_DIR = Path(os.environ.get("APPDATA", "")) / "ezClipping"
@@ -135,6 +135,9 @@ class App:
         self.job: render.Job | None = None  # the render in progress
         self.suspended = False
         self.last_clips_dir: Path | None = None
+        self.capturing = False  # settings window is waiting for a new clip button: don't save replays
+        self.raise_settings = threading.Event()
+        self.settings_thread: threading.Thread | None = None
         self.jobs_path = jobs_path
         self.jobs_lock = threading.Lock()
         try:
@@ -300,6 +303,27 @@ class App:
         folder.mkdir(parents=True, exist_ok=True)
         os.startfile(folder)
 
+    def clip_key(self) -> int | None:
+        return None if self.capturing else self.cfg["clip_key"]
+
+    def open_settings(self) -> None:
+        if self.settings_thread and self.settings_thread.is_alive():
+            self.raise_settings.set()  # already open: bring it to the front
+            return
+        self.settings_thread = threading.Thread(target=settings.show, args=(self, tray_image(True)), daemon=True)
+        self.settings_thread.start()
+
+    def apply_settings(self, new: dict) -> None:
+        """Called by the settings window on Save. Everything takes effect right away."""
+        reconnect = any(new.get(k, self.cfg[k]) != self.cfg[k] for k in ("host", "port", "password"))
+        self.cfg.update(new)
+        save_config(self.cfg)
+        set_start_with_windows(self.cfg["start_with_windows"])
+        conn = self.conn
+        if reconnect and conn:
+            conn.close()  # obs_loop notices and reconnects with the new settings
+        log.info("Settings saved")
+
     def toggle_start_with_windows(self) -> None:
         self.cfg["start_with_windows"] = not self.cfg["start_with_windows"]
         save_config(self.cfg)
@@ -324,10 +348,12 @@ class App:
     def run(self) -> None:
         gate = threading.Thread(target=self.gate_loop, daemon=True)
         for t in (gate, threading.Thread(target=self.obs_loop, daemon=True),
-                  threading.Thread(target=hotkey.watch, args=(lambda: self.cfg["clip_key"], self.on_press, self.stop),
-                                   daemon=True)):
+                  threading.Thread(target=hotkey.watch, args=(self.clip_key, self.on_press, self.stop), daemon=True)):
             t.start()
+        if not self.cfg["clip_key"]:
+            self.open_settings()  # first run: nothing works until a clip button is set
         menu = pystray.Menu(
+            pystray.MenuItem("Settings", self.open_settings),
             pystray.MenuItem("Open clips folder", self.open_clips_folder, default=True),
             pystray.MenuItem("Start with Windows", self.toggle_start_with_windows,
                              checked=lambda item: self.cfg["start_with_windows"]),
@@ -337,6 +363,8 @@ class App:
         pystray.Icon("ezClipping", tray_image(False), "ezClipping", menu).run(setup=self.tray_loop)
         self.stop.set()
         gate.join(timeout=10)  # let it stop a running render and delete its half-written file
+        if self.settings_thread:
+            self.settings_thread.join(timeout=2)  # it closes itself when it sees stop
 
 
 def main() -> None:
@@ -351,6 +379,7 @@ def main() -> None:
     if not single_instance():
         log.info("ezClipping is already running, not starting a second copy")
         return
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)  # sharp settings window on scaled displays
     cfg = load_config()
     set_start_with_windows(cfg["start_with_windows"])  # also fixes the path if the exe was moved
     App(cfg).run()

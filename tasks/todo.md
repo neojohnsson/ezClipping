@@ -93,7 +93,9 @@ Each task ends with tests + lint green and a git commit.
 
 ## Phase 4: Settings for other users
 
-- [ ] **T7: Settings window**
+- [x] **T7: Settings window**. Done: native ttk window from the tray (and opens itself on first run). Clip button
+  capture (no left/right mouse, Esc cancels), resolution presets + custom (accepts -w 2200 -h 1440), OBS auto/manual with
+  live status, 3 toggles. Saves apply live (new button worked instantly); bad input shows an inline error.
   - Does: tkinter window. OBS host/port/password (pre-filled from auto-read), clip button "press a key or mouse button" capture, in-game resolution dropdown + custom `W x H`, toggles (beep, auto-start replay buffer, start with Windows). Changes apply without a restart.
   - Acceptance:
     - Change the button or resolution → it takes effect immediately.
