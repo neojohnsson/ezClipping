@@ -18,7 +18,8 @@ Each task ends with tests + lint green and a git commit.
   - Files: `ezclipping/__init__.py`, `ezclipping/hud.py`, `ezclipping/render.py`, `tests/test_render.py`, `requirements*.txt`, `.gitignore`
   - Size: M
 
-- [ ] **T2: Health-bar visible detector**
+- [x] **T2: Health-bar visible detector**. Done: 272/272 alive frames visible, 44/45 out-of-match hidden (1 intro frame),
+  knocked 15/15 and spectating 10/10 count as hidden, 0.06 ms/frame, tolerates a box ~0.5% off. Lobby not covered yet (no footage).
   - Does: `hud.visible(img, box) -> bool` on a ~640 px frame. Labeled fixtures = small crops around the box from your recordings: alive (several shield colors, low HP), knocked, lobby, menus/loading, match summary.
   - Acceptance:
     - ≥ 95% correct on fixtures, and 0 alive-in-match frames marked "not visible".
