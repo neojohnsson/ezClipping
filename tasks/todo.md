@@ -74,7 +74,9 @@ Each task ends with tests + lint green and a git commit.
   - Files: `ezclipping/__main__.py`, `ezclipping/render.py`, `ezclipping/obs.py`, `tests/test_gate.py`
   - Size: M
 
-- [ ] **T6: Tray + start with Windows**
+- [x] **T6: Tray + start with Windows**. Done: tray icon (gray until OBS connects), live status tooltip, double-click
+  opens the clips folder, Start with Windows toggle (registry Run key), Quit stops cleanly. A second copy refuses to start.
+  The Run-key command was checked by launching it from C:\ via CreateProcess. A real reboot happens on your next login.
   - Does: pystray icon. Tooltip shows connected / queue count / rendering. Menu: Settings, Open clips folder, Quit. Startup-folder shortcut on/off.
   - Acceptance:
     - The icon shows its states.
