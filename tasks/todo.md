@@ -5,7 +5,8 @@ Each task ends with tests + lint green and a git commit.
 
 ## Phase 1: Core pipeline
 
-- [ ] **T1: Replay file → vertical clip**
+- [x] **T1: Replay file → vertical clip**. Done: card-shaped mask added (matches reference), GPU decode (d3d11va),
+  20 s of 1440p180 renders in 6 s on your PC (a 270 s replay ≈ 80 s). Box measured: `(0.0266, 0.896, 0.200, 0.0667)` at 2200x1440.
   - Does: `git init`, venv, requirements. `hud.box_for_res(w, h)` formula. `render.filter_graph(box)`,
     encoder detection (nvenc → amf → qsv → libx264), `render.run(src, dst)` at idle priority writing `.part` then renaming.
     `python -m ezclipping.render <replay>` for manual runs.
