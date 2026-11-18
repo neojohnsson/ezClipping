@@ -1,10 +1,14 @@
 """OBS replay -> 1080x1920 vertical clip in one ffmpeg pass."""
 
+import ctypes
 import functools
 import subprocess
 import sys
+import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import IO
 
 from ezclipping.hud import Box, box_for_res
 
@@ -12,6 +16,51 @@ FFMPEG = "ffmpeg"
 ENCODERS = ("h264_nvenc", "h264_amf", "h264_qsv", "libx264")
 ENCODER_ARGS = {"h264_nvenc": ["-preset", "p5"], "libx264": ["-preset", "veryfast"]}
 NO_WINDOW = subprocess.CREATE_NO_WINDOW
+PROCESS_TERMINATE, PROCESS_SET_QUOTA, PROCESS_SUSPEND_RESUME = 0x0001, 0x0100, 0x0800
+JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 0x2000, 9
+
+_kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # own instances: don't touch ctypes.windll's
+_ntdll = ctypes.WinDLL("ntdll")
+_kernel32.OpenProcess.restype = ctypes.c_void_p
+_kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_bool, ctypes.c_uint32]
+_kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+_kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+_kernel32.SetInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+_kernel32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+_kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+_ntdll.NtSuspendProcess.argtypes = _ntdll.NtResumeProcess.argtypes = [ctypes.c_void_p]
+
+
+class _BasicLimits(ctypes.Structure):
+    _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                ("LimitFlags", ctypes.c_uint32), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", ctypes.c_uint32),
+                ("Affinity", ctypes.c_size_t), ("PriorityClass", ctypes.c_uint32),
+                ("SchedulingClass", ctypes.c_uint32)]
+
+
+class _ExtendedLimits(ctypes.Structure):
+    _fields_ = [("BasicLimitInformation", _BasicLimits), ("IoInfo", ctypes.c_uint64 * 6),
+                ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+
+@functools.cache
+def _kill_on_exit_job() -> int:
+    """A Windows job object that kills every ffmpeg in it when ezClipping exits, even on a hard kill."""
+    job = _kernel32.CreateJobObjectW(None, None)
+    info = _ExtendedLimits()
+    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    _kernel32.SetInformationJobObject(job, JOB_OBJECT_EXTENDED_LIMIT_INFORMATION, ctypes.byref(info),
+                                      ctypes.sizeof(info))
+    return job
+
+
+def _open(pid: int, access: int) -> int:
+    handle = _kernel32.OpenProcess(access, False, pid)
+    if not handle:
+        raise ctypes.WinError(ctypes.get_last_error())
+    return handle
 
 
 # Outline of the health-bar card inside its box (fractions), clockwise. Angled ends, flat top/bottom.
@@ -58,26 +107,80 @@ def output_path(src: Path) -> Path:
     return src.parent / "vertical" / f"{src.stem}_vertical.mp4"
 
 
-def render(src: str | Path, box: Box) -> Path:
-    """Render src to <src folder>/vertical/<name>_vertical.mp4 at idle priority. Never touches src."""
+@dataclass
+class Job:
+    src: Path
+    proc: subprocess.Popen
+    part: Path  # ffmpeg writes here, renamed to dst only when it succeeds
+    dst: Path
+    errors: IO[bytes]  # ffmpeg's stderr (a file, so a chatty ffmpeg can't block on a full pipe)
+
+
+def start(src: str | Path, box: Box) -> Job:
+    """Start rendering src to <src folder>/vertical/<name>_vertical.mp4 at idle priority. Never touches src."""
     src = Path(src)
     dst = output_path(src)
     dst.parent.mkdir(exist_ok=True)
     part = dst.with_suffix(".part.mp4")
     enc = detect_encoder()
     cmd = [
-        FFMPEG, "-v", "error", "-y", "-hwaccel", "d3d11va", "-i", str(src),
+        FFMPEG, "-v", "error", "-nostdin", "-y", "-hwaccel", "d3d11va", "-i", str(src),
         "-filter_complex", filter_graph(box), "-map", "[out]", "-map", "0:a:0?",
         "-c:v", enc, *ENCODER_ARGS.get(enc, []), "-b:v", "20M", "-maxrate", "30M", "-bufsize", "40M",
         "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-f", "mp4", str(part),
     ]
-    done = subprocess.run(cmd, check=False, capture_output=True, text=True,
-                          creationflags=NO_WINDOW | subprocess.IDLE_PRIORITY_CLASS)
-    if done.returncode:
-        part.unlink(missing_ok=True)
-        raise RuntimeError(f"ffmpeg failed: {done.stderr.strip()[-800:]}")
-    part.replace(dst)
-    return dst
+    errors = tempfile.TemporaryFile()  # noqa: SIM115 - lives as long as the job, closed in finish()/cancel()
+    proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=errors,
+                            creationflags=NO_WINDOW | subprocess.IDLE_PRIORITY_CLASS)
+    try:
+        handle = _open(proc.pid, PROCESS_SET_QUOTA | PROCESS_TERMINATE)
+        _kernel32.AssignProcessToJobObject(_kill_on_exit_job(), handle)
+        _kernel32.CloseHandle(handle)
+    except OSError:
+        pass  # ffmpeg already exited (bad input): finish() reports it
+    return Job(src, proc, part, dst, errors)
+
+
+def finish(job: Job) -> Path:
+    """Wait for the render, then move the .part file to its final name. RuntimeError if ffmpeg failed."""
+    code = job.proc.wait()
+    job.errors.seek(0)
+    stderr = job.errors.read().decode(errors="replace").strip()
+    job.errors.close()
+    if code:
+        job.part.unlink(missing_ok=True)
+        raise RuntimeError(f"ffmpeg exited {code}: {stderr[-800:]}")
+    job.part.replace(job.dst)
+    return job.dst
+
+
+def cancel(job: Job) -> None:
+    """Stop a running (or paused) render and delete its half-written file."""
+    job.proc.kill()
+    job.proc.wait()
+    job.errors.close()
+    job.part.unlink(missing_ok=True)
+
+
+def _nt(call: str, job: Job) -> None:
+    handle = _open(job.proc.pid, PROCESS_SUSPEND_RESUME)
+    try:
+        getattr(_ntdll, call)(handle)
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
+def suspend(job: Job) -> None:
+    """Freeze ffmpeg in place: 0% CPU/GPU until resume(), nothing lost."""
+    _nt("NtSuspendProcess", job)
+
+
+def resume(job: Job) -> None:
+    _nt("NtResumeProcess", job)
+
+
+def render(src: str | Path, box: Box) -> Path:
+    return finish(start(src, box))
 
 
 if __name__ == "__main__":

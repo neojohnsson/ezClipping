@@ -62,7 +62,9 @@ Each task ends with tests + lint green and a git commit.
 
 ## Phase 3: Zero-impact gating + tray
 
-- [ ] **T5: Queue + out-of-match gate + pause/resume**
+- [x] **T5: Queue + out-of-match gate + pause/resume**. Done, live over ~1.5 h of ranked: no render in a match,
+  paused in the same check the bar came back, resumed 60 s after the match ended. Queue survived a hard kill. Job object
+  kills ffmpeg if ezClipping dies. Lobby false-positive found and fixed. Idle: 0.1% of one core, 21 MB.
   - Does: saves go to `queue.json`. Gate loop every 3 s takes an OBS screenshot and runs `hud.visible`. 60 s without the bar (or OBS gone) → render the next job. Bar back → suspend ffmpeg, resume after the next 60 s gap.
   - Acceptance:
     - No ffmpeg process while the bar is visible.

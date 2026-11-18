@@ -1,6 +1,9 @@
+import ctypes
 import json
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -128,6 +131,64 @@ class RenderVertical(unittest.TestCase):
         self.assertAlmostEqual((white_x[0] + white_x[-1]) / 2, 540, delta=6)
         self.assertAlmostEqual((white_y[0] + white_y[-1]) / 2, 1382, delta=6)
         self.assertTrue(0.88 * 756 < len(white_x) <= 756)  # card's angled ends trim the box a bit
+
+
+class PauseResumeCancel(unittest.TestCase):
+    def test_paused_render_makes_no_progress_then_finishes_after_resume(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            job = render.start(make_replay(Path(tmp), 2560, 1440, 6), box_for_res(2200, 1440))
+            time.sleep(0.5)
+            render.suspend(job)
+            time.sleep(0.3)  # let any in-flight write land
+            size = job.part.stat().st_size if job.part.exists() else 0
+            time.sleep(1.0)
+            self.assertEqual(job.part.stat().st_size if job.part.exists() else 0, size)
+            self.assertIsNone(job.proc.poll())  # still alive, just paused
+            render.resume(job)
+            out = render.finish(job)
+            video = next(s for s in probe(out)["streams"] if s["codec_type"] == "video")
+            self.assertAlmostEqual(float(probe(out)["format"]["duration"]), 6, delta=0.1)
+            self.assertEqual(video["width"], 1080)
+
+    def test_cancel_kills_ffmpeg_and_leaves_no_part_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            job = render.start(make_replay(Path(tmp), 2560, 1440, 6), box_for_res(2200, 1440))
+            time.sleep(0.5)
+            render.suspend(job)  # cancel must also work on a paused render (quit while in a match)
+            render.cancel(job)
+            self.assertIsNotNone(job.proc.poll())
+            self.assertFalse(job.part.exists())
+            self.assertFalse(job.dst.exists())
+
+
+def running(pid: int) -> bool:
+    handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return False
+    code = ctypes.c_ulong()
+    ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+    ctypes.windll.kernel32.CloseHandle(handle)
+    return code.value == 259  # STILL_ACTIVE
+
+
+class Orphans(unittest.TestCase):
+    def test_ffmpeg_dies_when_ezclipping_is_killed(self):
+        # Task Manager "End task" kills only ezClipping; a paused ffmpeg left behind would lock the .part file
+        with tempfile.TemporaryDirectory() as tmp:
+            replay = make_replay(Path(tmp), 2560, 1440, 20)
+            script = (
+                "import sys, time; from ezclipping import render; from ezclipping.hud import box_for_res; "
+                f"job = render.start(r'{replay}', box_for_res(2200, 1440)); render.suspend(job); "
+                "print(job.proc.pid, flush=True); time.sleep(60)"
+            )
+            app = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True,
+                                   cwd=Path(__file__).parent.parent)
+            ffmpeg_pid = int(app.stdout.readline())
+            self.assertTrue(running(ffmpeg_pid))
+            app.kill()  # TerminateProcess on ezClipping only, not its children
+            app.wait()
+            time.sleep(0.5)
+            self.assertFalse(running(ffmpeg_pid))
 
 
 class RenderOddSizes(unittest.TestCase):
