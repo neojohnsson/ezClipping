@@ -121,7 +121,10 @@ Each task ends with tests + lint green and a git commit.
 
 ## Phase 5: Ship
 
-- [ ] **T9: Single exe**
+- [x] **T9: Single exe**. Done: `build.ps1` → dist\ezClipping.exe 54.5 MB (+ FFMPEG-LICENSE.txt, README.md), builds
+  in 25 s, starts in 2.1 s, 64 MB RAM. Fresh-config run through Explorer: settings opened by themselves, the clip
+  button saved, and a 208 s clip rendered with the bundled ffmpeg (seen running from the exe's _MEI dir). Checkpoint D
+  covered by this.
   - Does: `build.ps1` copies ffmpeg.exe + its license into `vendor\` and runs PyInstaller `--onefile --noconsole`. The app finds the bundled ffmpeg. README covers user setup (enable OBS websocket, replay buffer, pick button/res) and the SmartScreen note.
   - Acceptance:
     - `dist\ezClipping.exe` works with Python and ffmpeg off PATH.

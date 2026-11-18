@@ -14,7 +14,8 @@ from PIL import Image
 
 from ezclipping.hud import Box, box_for_res
 
-FFMPEG = "ffmpeg"
+# the packaged exe carries its own ffmpeg (PyInstaller unpacks it to sys._MEIPASS); in dev, use the one on PATH
+FFMPEG = str(Path(sys._MEIPASS) / "ffmpeg.exe") if getattr(sys, "frozen", False) else "ffmpeg"
 ENCODERS = ("h264_nvenc", "h264_amf", "h264_qsv", "libx264")
 ENCODER_ARGS = {"h264_nvenc": ["-preset", "p5"], "libx264": ["-preset", "veryfast"]}
 NO_WINDOW = subprocess.CREATE_NO_WINDOW
