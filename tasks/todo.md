@@ -35,7 +35,8 @@ Each task ends with tests + lint green and a git commit.
 
 ## Phase 2: End-to-end with OBS
 
-- [ ] **T3: OBS → vertical clip (no gate yet)**
+- [x] **T3: OBS → vertical clip (no gate yet)**. Done: Ctrl+L in your OBS → 29.6 s replay → vertical clip 17 s later.
+  Reconnected after 3 OBS restarts. obsws-python's password/traceback logging silenced.
   - Does: `obs.py`: read websocket config (port/password) from `%APPDATA%\obs-studio\plugin_config\obs-websocket\config.json`, connect with retry, handle `ReplayBufferSaved` → `render.run`. Minimal `__main__.py` with config load/save.
   - Acceptance:
     - Ctrl+L in OBS → `<replay folder>\vertical\*_vertical.mp4` appears.
