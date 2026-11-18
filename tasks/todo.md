@@ -104,7 +104,9 @@ Each task ends with tests + lint green and a git commit.
   - Files: `ezclipping/settings.py`, `ezclipping/hotkey.py`, `ezclipping/__main__.py`, `tests/test_settings.py`
   - Size: M
 
-- [ ] **T8: Calibrate + Preview**
+- [x] **T8: Calibrate + Preview**. Done: drag a box on a live OBS screenshot. It checks right away that the HP bar
+  is inside (the pause-in-match check depends on it). Preview renders one real frame in 0.17 s. Reset goes back to
+  the formula. Tested by you in the Firing Range.
   - Does: grab a full-res OBS screenshot, show it scaled, drag a box → save fractions. Preview renders one 1080x1920 frame of the layout from that screenshot (same filter graph) and shows it.
   - Acceptance:
     - The dragged box shows up as the health-bar overlay in Preview.

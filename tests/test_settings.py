@@ -1,7 +1,22 @@
 import unittest
 
 from ezclipping.hotkey import VK_XBUTTON1, VK_XBUTTON2, key_name
-from ezclipping.settings import parse_res
+from ezclipping.settings import drag_to_box, parse_res
+
+
+class DragToBox(unittest.TestCase):
+    def test_drag_becomes_fractions_of_the_picture(self):
+        box = drag_to_box(100, 450, 300, 490, width=1000, height=500)
+        self.assertEqual(box, (0.1, 0.9, 0.2, 0.08))
+
+    def test_dragging_up_and_left_gives_the_same_box(self):
+        self.assertEqual(drag_to_box(300, 490, 100, 450, 1000, 500), drag_to_box(100, 450, 300, 490, 1000, 500))
+
+    def test_drag_past_the_edge_is_clamped(self):
+        self.assertEqual(drag_to_box(-50, 450, 300, 600, 1000, 500), (0.0, 0.9, 0.3, 0.1))
+
+    def test_a_click_or_tiny_drag_is_not_a_box(self):
+        self.assertIsNone(drag_to_box(100, 450, 104, 452, 1000, 500))
 
 
 class ParseRes(unittest.TestCase):

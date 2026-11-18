@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
 
+from PIL import Image
+
 from ezclipping.hud import Box, box_for_res
 
 FFMPEG = "ffmpeg"
@@ -181,6 +183,18 @@ def resume(job: Job) -> None:
 
 def render(src: str | Path, box: Box) -> Path:
     return finish(start(src, box))
+
+
+def preview(frame: Image.Image, box: Box) -> Image.Image:
+    """One 1080x1920 frame of the vertical layout made from a screenshot, with the same filter graph."""
+    with tempfile.TemporaryDirectory() as tmp:
+        src, out = Path(tmp) / "frame.png", Path(tmp) / "preview.png"
+        frame.convert("RGB").save(src)
+        subprocess.run([FFMPEG, "-v", "error", "-i", str(src), "-filter_complex", filter_graph(box),
+                        "-map", "[out]", "-frames:v", "1", str(out)],
+                       check=True, capture_output=True, creationflags=NO_WINDOW)
+        with Image.open(out) as img:
+            return img.copy()
 
 
 if __name__ == "__main__":

@@ -133,6 +133,18 @@ class RenderVertical(unittest.TestCase):
         self.assertTrue(0.88 * 756 < len(white_x) <= 756)  # card's angled ends trim the box a bit
 
 
+class Preview(unittest.TestCase):
+    def test_preview_of_a_screenshot_is_the_real_layout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            make_replay(Path(tmp), 2560, 1440, 0.1)
+            with Image.open(Path(tmp) / "src.png") as img:
+                shot = img.copy()  # don't keep the file open: Windows can't delete the temp dir then
+        frame = render.preview(shot, box_for_res(2200, 1440)).convert("RGB")
+        self.assertEqual(frame.size, (1080, 1920))
+        self.assertTrue(all(abs(c - 255) < 70 for c in frame.getpixel((540, 1382))))  # health bar overlay
+        self.assertTrue(all(abs(a - b) < 70 for a, b in zip(frame.getpixel((270, 960)), (255, 0, 0))))  # gameplay
+
+
 class PauseResumeCancel(unittest.TestCase):
     def test_paused_render_makes_no_progress_then_finishes_after_resume(self):
         with tempfile.TemporaryDirectory() as tmp:
