@@ -1,3 +1,4 @@
+import io
 import time
 import unittest
 from pathlib import Path
@@ -36,6 +37,18 @@ class RealFootage(unittest.TestCase):
         frames = tiles("hud_hidden.png")
         wrong = [i for i, t in enumerate(frames) if visible(t, box_in_tile())]
         self.assertGreaterEqual(1 - len(wrong) / len(frames), 0.95, f"marked visible: {wrong}")
+
+    def test_works_on_jpeg_screenshots_like_obs_sends(self):
+        def as_jpeg(tile):
+            buf = io.BytesIO()
+            tile.save(buf, "JPEG", quality=90)
+            return Image.open(buf)
+
+        alive_missed = [i for i, t in enumerate(tiles("hud_visible.png")) if not visible(as_jpeg(t), box_in_tile())]
+        hidden = tiles("hud_hidden.png")
+        wrong = [i for i, t in enumerate(hidden) if visible(as_jpeg(t), box_in_tile())]
+        self.assertEqual(alive_missed, [])
+        self.assertGreaterEqual(1 - len(wrong) / len(hidden), 0.95)
 
     def test_check_is_fast(self):
         frames = tiles("hud_visible.png")

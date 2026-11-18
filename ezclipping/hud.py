@@ -40,13 +40,18 @@ def visible(img: Image.Image, box: Box) -> bool:
     rows = [lum[i * cols:(i + 1) * cols] for i in range(bottom - top)]
 
     for i in range(first - top, min(last - top + 1, len(rows))):
-        runs = [m.span() for m in BAR.finditer(rows[i])]
+        # The HP bar starts right after the portrait, so its white run starts inside the zone. A panel
+        # border (the lobby's MODE SELECT box) runs straight through the zone's left edge.
+        runs = [m.span() for m in BAR.finditer(rows[i]) if m.start() > 0]
         if not runs:
             continue
         a, z = max(runs, key=lambda s: s[1] - s[0])
         level = [sum(row[a:z]) / (z - a) for row in rows]  # brightness of the run's columns, per row
+        thick = next((k for k in range(i, len(rows)) if level[k] < WHITE), len(rows)) - i
+        if not 2 <= thick <= gap + 2:  # bar is 3-4 px tall at 640 wide; 1 px is a border, more is a block
+            continue
         above = min(level[max(0, i - gap):i], default=255)
-        below = min(level[i + 1:i + gap + 3], default=255)
+        below = min(level[i + thick:i + thick + gap + 1], default=255)
         if level[i] - max(above, below) >= CONTRAST:
             return True
     return False
