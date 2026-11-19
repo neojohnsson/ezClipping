@@ -194,5 +194,12 @@ Each task ends with tests + lint green and a git commit.
 
 ### Checkpoint F
 - [ ] Tests + lint green, exe rebuilt and run by you once (clip → render)
-- [ ] Quick re-check of the changed areas, then GO / NO-GO
+- [x] Quick re-check of the changed areas: code-reviewer + security-auditor on 600c75f..HEAD. NO-GO, then fixed
+  (a1e6f3e, 1d7f92a, 8353e0e), each reproduced by a failing test first, 135 -> 140 tests:
+  stale ffmpeg path after a winget upgrade, relative winget paths without LOCALAPPDATA, broken winget alias did
+  nothing, config read twice (a passing lock let defaults overwrite it), unreadable queue.json overwritten,
+  disk full / antivirus / GPU fault dropped every clip after 3 tries, unplugged drive dropped clips, cancel could
+  block on a stuck ffmpeg. build.ps1 now stops on Python failures. Exe rebuilt (19.7 MB), runs from C:\ at 49 MB.
+  Not changed (out of scope for a local app): user-writable PATH folders, remote OBS host is unencrypted,
+  hand-edited config with a remote host + port could get OBS's password on the next Save.
 - [ ] Publish to GitHub only after your OK (author email + test images decision first)

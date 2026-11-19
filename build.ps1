@@ -4,6 +4,7 @@ $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 New-Item -ItemType Directory -Force vendor | Out-Null
 .venv\Scripts\python -c "from ezclipping.__main__ import tray_image; tray_image(True).save('vendor/ezclipping.ico', sizes=[(16, 16), (32, 32), (48, 48), (64, 64)])"
+if ($LASTEXITCODE) { throw "Couldn't make the icon" }  # "Stop" doesn't cover programs' exit codes in PS 5.1
 
 # Only Windows and this Python on PATH: PyInstaller copies DLLs it finds on PATH (it took a JDK's otherwise)
 $python = .venv\Scripts\python -c "import sys; print(sys.base_prefix)"
@@ -32,8 +33,10 @@ for name in ["obsws-python", "pystray", "pillow", "websocket-client", "six", "py
 shutil.copy(pathlib.Path(sys.base_prefix) / "LICENSE.txt", out / "python-LICENSE.txt")
 print("\n".join(sorted(p.name for p in out.iterdir())))
 '@ | .venv\Scripts\python -
+if ($LASTEXITCODE) { throw "Couldn't collect the license texts" }
 
 $version = .venv\Scripts\python -c "import ezclipping; print(ezclipping.__version__)"
+if ($LASTEXITCODE -or -not $version) { throw "Couldn't read the version" }
 Copy-Item LICENSE, THIRD-PARTY-NOTICES.md, README.md dist\
 Remove-Item dist\FFMPEG-LICENSE.txt -ErrorAction SilentlyContinue  # from older builds that bundled ffmpeg
 $zip = "dist\ezClipping-$version.zip"
