@@ -134,6 +134,7 @@ class App:
         self.last_seen = time.monotonic()  # when your health bar was last on screen
         self.job: render.Job | None = None  # the render in progress
         self.suspended = False
+        self.was_visible: bool | None = None  # health bar state at the last check
         self.last_clips_dir: Path | None = None
         self.capturing = False  # settings window is waiting for a new clip button: don't save replays
         self.raise_settings = threading.Event()
@@ -148,27 +149,36 @@ class App:
     def obs_loop(self) -> None:
         """Stay connected to OBS forever: retry every 5 s while it's closed, reconnect when it comes back."""
         while not self.stop.is_set():
-            ws = obs.websocket_settings()
-            port = self.cfg["port"] or ws.get("port", 4455)
-            password = ws.get("password", "") if self.cfg["password"] is None else self.cfg["password"]
             try:
-                conn = obs.Obs(self.cfg["host"], port, password, self.on_saved)
-            except obs.CONNECT_ERRORS as e:
-                log.debug("OBS not reachable on port %s: %s", port, e)
+                self.obs_session()
+            except Exception:
+                log.exception("OBS connection hit an error, retrying")
+                self.conn = None
                 self.stop.wait(5)
-                continue
-            log.info("Connected to OBS on port %s", port)
-            if self.cfg["auto_replay_buffer"]:
-                try:
-                    obs.ensure_replay_buffer(conn)
-                except obs.CONNECT_ERRORS as e:
-                    log.warning("Couldn't start the replay buffer (enable it in OBS: Settings > Output): %s", e)
-            self.conn = conn
-            while conn.alive and not self.stop.is_set():
-                self.stop.wait(1)
-            self.conn = None
-            conn.close()
-            log.info("Disconnected from OBS")
+
+    def obs_session(self) -> None:
+        """One connect attempt, then stay until OBS goes away."""
+        ws = obs.websocket_settings()
+        port = self.cfg["port"] or ws.get("port", 4455)
+        password = ws.get("password", "") if self.cfg["password"] is None else self.cfg["password"]
+        try:
+            conn = obs.Obs(self.cfg["host"], port, password, self.on_saved)
+        except obs.CONNECT_ERRORS as e:
+            log.debug("OBS not reachable on port %s: %s", port, e)
+            self.stop.wait(5)
+            return
+        log.info("Connected to OBS on port %s", port)
+        if self.cfg["auto_replay_buffer"]:
+            try:
+                obs.ensure_replay_buffer(conn)
+            except obs.CONNECT_ERRORS as e:
+                log.warning("Couldn't start the replay buffer (enable it in OBS: Settings > Output): %s", e)
+        self.conn = conn
+        while conn.alive and not self.stop.is_set():
+            self.stop.wait(1)
+        self.conn = None
+        conn.close()
+        log.info("Disconnected from OBS")
 
     def on_press(self) -> None:
         if time.monotonic() - self.last_save < SAVE_COOLDOWN:
@@ -192,10 +202,13 @@ class App:
     def beep(self, ok: bool) -> None:
         if not self.cfg["beep"]:
             return
-        if ok:
-            winsound.Beep(1200, 90)  # short high: saving
-        else:
-            winsound.Beep(400, 250)  # longer low: didn't save
+        try:
+            if ok:
+                winsound.Beep(1200, 90)  # short high: saving
+            else:
+                winsound.Beep(400, 250)  # longer low: didn't save
+        except RuntimeError:
+            pass  # no sound device: the save itself still worked
 
     def on_saved(self, path: Path) -> None:
         log.info("Replay saved, will render once you're out of the match: %s", path)
@@ -204,15 +217,22 @@ class App:
         with self.jobs_lock:
             if str(path) not in self.jobs:
                 self.jobs.append(str(path))
-                write_json(self.jobs_path, self.jobs)
+                self.save_jobs()
 
     def done_job(self, path: Path) -> None:
         with self.jobs_lock:
             if str(path) in self.jobs:
                 self.jobs.remove(str(path))
-                write_json(self.jobs_path, self.jobs)
+                self.save_jobs()
 
-    def health_bar_visible(self) -> bool:
+    def save_jobs(self) -> None:
+        try:
+            write_json(self.jobs_path, self.jobs)
+        except OSError as e:  # disk full, antivirus lock: the queue in memory still has everything
+            log.error("Couldn't save the clip queue to disk (clips still render this session): %s", e)
+
+    def health_bar_visible(self) -> bool | None:
+        """True/False, or None if OBS is connected but didn't answer."""
         conn = self.conn
         if not conn:
             return False  # OBS closed: nothing to protect, render away
@@ -220,7 +240,7 @@ class App:
             return visible(conn.screenshot(), clip_box(self.cfg))
         except obs.CONNECT_ERRORS as e:
             log.debug("Screenshot failed: %s", e)
-            return False
+            return None
 
     def start_next(self) -> render.Job | None:
         src = Path(self.jobs[0])
@@ -245,33 +265,40 @@ class App:
 
     def gate_loop(self) -> None:
         """Render queued replays only while you're out of a match; pause the render if one starts."""
-        was_visible = None
         while not self.stop.wait(CHECK_EVERY):
-            if self.job is None and not self.jobs:
-                continue  # nothing to do: no screenshots, zero cost
-            seen = self.health_bar_visible()
-            if seen != was_visible:
-                log.info("Health bar %s", "on screen: in a match" if seen else f"gone: rendering in {CLEAR_AFTER} s")
-                was_visible = seen
-            if seen:
-                self.last_seen = time.monotonic()
-            if self.job and self.job.proc.poll() is not None:
-                self.finish(self.job)
-                self.job, self.suspended = None, False
-            clear = time.monotonic() - self.last_seen >= CLEAR_AFTER
-            action = decide(clear, self.job is not None, self.suspended, bool(self.jobs))
-            if action == "start":
-                self.job = self.start_next()
-            elif action == "suspend":
-                render.suspend(self.job)
-                self.suspended = True
-                log.info("Health bar is back: render paused")
-            elif action == "resume":
-                render.resume(self.job)
-                self.suspended = False
-                log.info("Out of match again: render resumed")
+            try:
+                self.gate_step()
+            except Exception:
+                log.exception("Render gate hit an error, carrying on")
         if self.job:
             render.cancel(self.job)  # stays queued, renders again next start
+
+    def gate_step(self) -> None:
+        if self.job is None and not self.jobs:
+            return  # nothing to do: no screenshots, zero cost
+        seen = self.health_bar_visible()
+        if seen is None:  # OBS is there but didn't answer: assume nothing changed
+            seen = bool(self.was_visible)
+        if seen != self.was_visible:
+            log.info("Health bar %s", "on screen: in a match" if seen else f"gone: rendering in {CLEAR_AFTER} s")
+            self.was_visible = seen
+        if seen:
+            self.last_seen = time.monotonic()
+        if self.job and self.job.proc.poll() is not None:
+            self.finish(self.job)
+            self.job, self.suspended = None, False
+        clear = time.monotonic() - self.last_seen >= CLEAR_AFTER
+        action = decide(clear, self.job is not None, self.suspended, bool(self.jobs))
+        if action == "start":
+            self.job = self.start_next()
+        elif action == "suspend":
+            render.suspend(self.job)
+            self.suspended = True
+            log.info("Health bar is back: render paused")
+        elif action == "resume":
+            render.resume(self.job)
+            self.suspended = False
+            log.info("Out of match again: render resumed")
 
     def status(self) -> str:
         parts = ["connected to OBS" if self.conn else "waiting for OBS"]
@@ -376,6 +403,8 @@ def main() -> None:
     # obsws-python logs the OBS password at INFO and a traceback per failed retry; obs_loop handles both
     for noisy in ("obsws_python", "websocket"):
         logging.getLogger(noisy).setLevel(logging.CRITICAL)
+    threading.excepthook = lambda a: log.error("Thread %s crashed", a.thread, exc_info=(a.exc_type, a.exc_value,
+                                                                                       a.exc_traceback))
     if not single_instance():
         log.info("ezClipping is already running, not starting a second copy")
         return

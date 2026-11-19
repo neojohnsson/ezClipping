@@ -2,8 +2,11 @@
 anti-cheat to look at."""
 
 import ctypes
+import logging
 import threading
 from collections.abc import Callable
+
+log = logging.getLogger("ezclipping")
 
 VK_XBUTTON1, VK_XBUTTON2, VK_ESCAPE = 0x05, 0x06, 0x1B  # mouse side buttons: back, forward
 POLL = 1 / 30
@@ -43,5 +46,8 @@ def watch(get_vk: Callable[[], int | None], on_press: Callable[[], None], stop: 
         vk = get_vk()
         state = key_state(vk) if vk else 0
         if state & 0x8001 and not was_down:  # 0x8000 = held now, 0x0001 = tapped since the last poll
-            on_press()
+            try:
+                on_press()
+            except Exception:
+                log.exception("Clip button handler failed")  # keep watching: a dead thread = a dead button
         was_down = bool(state & 0x8000)

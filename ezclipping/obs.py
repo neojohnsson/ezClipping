@@ -14,7 +14,8 @@ from PIL import Image
 from websocket import WebSocketException
 
 WS_CONFIG = Path(os.environ.get("APPDATA", "")) / "obs-studio" / "plugin_config" / "obs-websocket" / "config.json"
-CONNECT_ERRORS = (OSError, OBSSDKError, WebSocketException)  # OBS closed, wrong password, dropped socket
+# OBS closed, wrong password, dropped socket, a closing socket's empty reply (JSONDecodeError), a bad host
+CONNECT_ERRORS = (OSError, OBSSDKError, WebSocketException, ValueError)
 
 
 def websocket_settings(path: Path = WS_CONFIG) -> dict:
