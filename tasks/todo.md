@@ -134,6 +134,22 @@ Each task ends with tests + lint green and a git commit.
   - Size: S
 
 ### Checkpoint E
-- [ ] All SPEC success criteria checked
-- [ ] code-reviewer agent findings shown to you and fixed
+- [x] All SPEC success criteria checked:
+  1. Button saves: OBS accepts the save + beep instantly; the file is written and queued ~2 s later (OBS writing a
+     long buffer). Mouse 4, Page Up, Shift and OBS's own Ctrl+L all tested.
+  2. No ffmpeg during matches (T5 1.5 h log). Idle 0.1% of one core; RAM 21 MB dev, 64 MB exe. CPU during a match with
+     clips queued not measured separately (same 3 s JPEG check, ~9 ms of OBS CPU each).
+  3. 60 s gap → render, bar back → paused in the same check, resumed after the next gap (T5 log).
+  4. Exe clip: 1080x1920, 60 fps, H.264 + AAC, 207.8 s = replay length, in `vertical\`.
+  5. Layout positions: covered by tests (strip 352-1568, bar centered at 1382).
+  6. 2200x1440 lines up uncalibrated (T1/T2). 1080p source renders (test).
+  7. Calibrate → Preview shows the dragged box (you, T8).
+  8. h264_nvenc on your PC, libx264 fallback (tests).
+  9. Queue survived a hard kill and rendered after restart (T5).
+  10. Exe used its own bundled ffmpeg and frozen Python. Not yet run on a PC that never had Python/ffmpeg.
+  11. Reconnects within ~5 s of OBS opening (T3). Real reboot: your next login.
+- [x] code-reviewer + security-auditor findings shown to you and fixed (all 9 bugs, all low security items, GPLv3
+  release files). Each bug was reproduced by a failing test first. 75 → 111 tests.
+  Not done on purpose: code signing (paid; SHA-256 published instead), `--require-hashes`/pip-audit, Python 3.13,
+  two dev-only nits. Unticking "auto" still copies OBS's password into config (same storage as OBS's own file).
 - [ ] /ship before you share it
