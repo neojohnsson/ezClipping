@@ -26,6 +26,8 @@ WIDTH = 400  # px, text wraps here
 HINT, ERROR, OK, ACCENT = "#55555f", "#b3261e", "#1e7e34", "#ff4655"
 # winget's own launcher, by full path: never whatever "winget.exe" happens to sit in the current folder
 WINGET = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WindowsApps" / "winget.exe"
+MANUAL_FFMPEG = ("Download it from gyan.dev/ffmpeg/builds and add its bin folder to your PATH, or install winget "
+                 "and reopen this window.")
 
 
 def parse_res(text: str) -> tuple[int, int] | None:
@@ -74,13 +76,12 @@ class Settings:
         ttk.Label(self.ffmpeg_box, text="ffmpeg isn't installed. ezClipping needs it to make clips.",
                   style="Error.TLabel", wraplength=WIDTH).pack(anchor="w")
         self.ffmpeg_msg = ttk.Label(self.ffmpeg_box, style="Hint.TLabel", wraplength=WIDTH, justify="left")
-        if WINGET.is_file():
+        if WINGET.is_absolute() and WINGET.is_file():  # not absolute = no LOCALAPPDATA: it'd be the current folder
             self.install = ttk.Button(self.ffmpeg_box, text="Install ffmpeg", command=self.install_ffmpeg)
             self.install.pack(anchor="w", pady=(6, 0))
             self.ffmpeg_msg.configure(text="Installs the free Gyan.FFmpeg.Essentials package with winget.")
         else:
-            self.ffmpeg_msg.configure(text="Download it from gyan.dev/ffmpeg/builds and add its bin folder to "
-                                           "your PATH, or install winget and reopen this window.")
+            self.ffmpeg_msg.configure(text=MANUAL_FFMPEG)
         self.ffmpeg_msg.pack(anchor="w", pady=(4, 0))
         self.installing, self.ticks = False, 0
 
@@ -175,10 +176,13 @@ class Settings:
         return label
 
     def install_ffmpeg(self) -> None:
-        # its own console window, so you see winget's progress and agreements
-        subprocess.Popen([str(WINGET), *render.WINGET_INSTALL], creationflags=subprocess.CREATE_NEW_CONSOLE)
-        self.installing = True
         self.install.state(["disabled"])
+        try:  # its own console window, so you see winget's progress and agreements
+            subprocess.Popen([str(WINGET), *render.WINGET_INSTALL], creationflags=subprocess.CREATE_NEW_CONSOLE)
+        except OSError as e:  # App Installer half set up: winget.exe is there but won't start
+            self.ffmpeg_msg.configure(text=f"Couldn't start winget ({e.strerror or e}). {MANUAL_FFMPEG}")
+            return
+        self.installing = True
         self.ffmpeg_msg.configure(text="Installing in the window that just opened. This takes a minute or two; "
                                        "this message goes away when ffmpeg is found.")
 

@@ -131,7 +131,7 @@ def usable(exe: Path) -> bool:
 def find_ffmpeg(candidates: list[Path] | None = None) -> str | None:
     tried = set()
     for exe in ffmpeg_candidates() if candidates is None else candidates:
-        if str(exe).lower() in tried or not exe.is_file():
+        if not exe.is_absolute() or str(exe).lower() in tried or not exe.is_file():  # relative = current folder
             continue
         tried.add(str(exe).lower())
         if usable(exe):
@@ -144,6 +144,8 @@ _found: dict = {"path": None, "at": -RECHECK_AFTER}
 
 def ffmpeg(recheck: bool = False) -> str:
     """Path of a usable ffmpeg. FileNotFoundError if none is installed (looked for again every 30 s)."""
+    if _found["path"] is not None and not os.path.isfile(_found["path"]):
+        _found["path"], recheck = None, True  # uninstalled, or moved by a winget upgrade: look again now
     if _found["path"] is None and (recheck or time.monotonic() - _found["at"] >= RECHECK_AFTER):
         _found["path"], _found["at"] = find_ffmpeg(), time.monotonic()
     if _found["path"] is None:

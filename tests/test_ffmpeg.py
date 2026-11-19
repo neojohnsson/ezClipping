@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -38,6 +39,30 @@ class FindFfmpeg(unittest.TestCase):
                 os.chdir(old)
         self.assertNotIn(planted.resolve(), found)
         self.assertIn(REAL.resolve(), found)
+
+    def test_no_localappdata_does_not_make_winget_paths_relative(self):
+        # LOCALAPPDATA unset -> "Microsoft\WinGet\Links\ffmpeg.exe", which Windows resolves in the current folder
+        with tempfile.TemporaryDirectory() as tmp:
+            planted = Path(tmp, "Microsoft", "WinGet", "Links", "ffmpeg.exe")
+            planted.parent.mkdir(parents=True)
+            planted.write_bytes(b"MZ")
+            old = os.getcwd()
+            os.chdir(tmp)
+            try:
+                with mock.patch.dict(os.environ, {"PATH": str(REAL.parent), "LOCALAPPDATA": ""}), \
+                        mock.patch.object(render, "usable", return_value=False) as usable:
+                    render.find_ffmpeg()
+            finally:
+                os.chdir(old)
+        ran = [call.args[0] for call in usable.call_args_list]
+        self.assertTrue(ran, "the real ffmpeg on PATH should still be tried")
+        self.assertTrue(all(exe.is_absolute() for exe in ran), ran)
+
+    def test_an_ffmpeg_that_went_away_is_looked_for_again(self):
+        # winget upgrade/uninstall while running: the cached path is gone, so clips would never render
+        with mock.patch.dict(render._found, {"path": r"C:\gone\ffmpeg.exe", "at": time.monotonic()}), \
+                mock.patch.object(render, "find_ffmpeg", return_value=str(REAL)):
+            self.assertEqual(render.ffmpeg(), str(REAL))
 
 
 class InputAllowList(unittest.TestCase):
