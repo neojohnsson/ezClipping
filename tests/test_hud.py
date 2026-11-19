@@ -9,7 +9,8 @@ from ezclipping.hud import box_for_res, visible
 
 FIXTURES = Path(__file__).parent / "fixtures"
 # Fixtures are the bottom-left corner (x 0-30%, y 80-100%) of 640x360 frames from real 2200x1440 footage,
-# stacked vertically, one tile per frame. Cropped so no webcam/chat ends up in the repo.
+# stacked vertically, one tile per frame. Cropped so no webcam/chat ends up in the repo, and everything outside
+# the pixels visible() reads (cols 49-86, rows 43-65 of each 192x72 tile) blacked out: player names, session id.
 CROP = (0.0, 0.8, 0.3, 0.2)
 
 
