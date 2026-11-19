@@ -1,5 +1,7 @@
 """A render that fails or hangs must never silently cost the user a clip, or jam the queue."""
 
+import io
+import subprocess
 import tempfile
 import time
 import unittest
@@ -30,16 +32,30 @@ class Retry(unittest.TestCase):
         with mock.patch.object(render, "finish", side_effect=RuntimeError("ffmpeg exited 1")):
             self.app.finish(SimpleNamespace(src=Path(src)))
 
+    def render_once(self, src: str) -> None:
+        with mock.patch.object(render, "finish", return_value=Path(src)):
+            self.app.finish(SimpleNamespace(src=Path(src)))
+
     def test_failed_render_goes_to_the_back_of_the_queue(self):
         self.fail_once(self.bad)
         self.assertEqual(self.app.jobs, [self.good, self.bad])
 
-    def test_gives_up_only_after_three_failed_renders(self):
-        for _ in range(MAX_TRIES - 1):
+    def test_gives_up_after_three_failed_renders_once_other_clips_render_fine(self):
+        self.fail_once(self.bad)
+        self.render_once(self.good)  # the PC, disk and ffmpeg work: the fault is bad.mkv's
+        for _ in range(MAX_TRIES - 2):
             self.fail_once(self.bad)
         self.assertIn(self.bad, self.app.jobs)
         self.fail_once(self.bad)
-        self.assertEqual(self.app.jobs, [self.good])
+        self.assertEqual(self.app.jobs, [])
+
+    def test_a_fault_that_hits_every_clip_never_drops_one(self):
+        # disk full, antivirus blocking ffmpeg, a broken GPU encoder: every render fails, none is to blame
+        for _ in range(10 * MAX_TRIES):
+            self.fail_once(self.bad)
+            self.fail_once(self.good)
+        self.assertEqual(sorted(self.app.jobs), sorted([self.bad, self.good]))
+        self.assertLessEqual(self.app.retry_at, time.monotonic() + 10 * RETRY_AFTER)  # still retried often
 
     def test_failed_render_waits_before_the_next_try(self):
         # a fault that hits every clip (disk full) must not burn the whole queue in seconds
@@ -63,6 +79,26 @@ class Retry(unittest.TestCase):
     def test_missing_replay_is_skipped(self):
         self.assertIsNone(self.app.start_next())  # bad.mkv was never written
         self.assertEqual(self.app.jobs, [self.good])
+
+    def test_replay_on_a_missing_drive_waits_for_it(self):
+        # external drive unplugged, or a BitLocker drive not unlocked yet: the replay isn't gone
+        unplugged = str(self.dir / "unplugged drive" / "Replay 1.mkv")
+        self.app.jobs = [unplugged, self.good]
+        self.assertIsNone(self.app.start_next())
+        self.assertEqual(self.app.jobs, [self.good, unplugged])
+        self.assertEqual(self.app.tries.get(unplugged, 0), 0)
+        self.assertGreater(self.app.retry_at, time.monotonic())
+
+    def test_cancel_never_blocks_on_an_ffmpeg_that_wont_die(self):
+        # stuck in a GPU driver call: kill() doesn't take effect until it returns
+        def wait(timeout=None):
+            if timeout is None:
+                raise AssertionError("would wait forever and jam the gate")
+            raise subprocess.TimeoutExpired("ffmpeg", timeout)
+
+        job = SimpleNamespace(proc=SimpleNamespace(kill=lambda: None, wait=wait), errors=io.BytesIO(),
+                              part=self.dir / "x.part.mp4")
+        render.cancel(job)
 
     def test_rename_failing_after_a_finished_render_does_not_jam_the_gate(self):
         # antivirus / OneDrive holding the new file, or the clip open in a player

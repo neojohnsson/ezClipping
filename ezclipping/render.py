@@ -236,7 +236,10 @@ def finish(job: Job) -> Path:
 def cancel(job: Job) -> None:
     """Stop a running (or paused) render and delete its half-written file."""
     job.proc.kill()
-    job.proc.wait()
+    try:
+        job.proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:  # stuck in a GPU driver call: it dies when that returns, don't wait for it
+        pass
     job.errors.close()
     job.part.unlink(missing_ok=True)
 

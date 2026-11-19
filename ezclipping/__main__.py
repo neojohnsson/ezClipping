@@ -198,6 +198,7 @@ class App:
         self.suspended = False
         self.was_visible: bool | None = None  # health bar state at the last check
         self.tries: dict[str, int] = {}  # failed renders per replay, this session
+        self.to_blame: set[str] = set()  # replays that failed before another one rendered fine: their own fault
         self.retry_at = 0.0  # don't start a render before this (monotonic s)
         self.last_size, self.last_growth = -1, 0.0  # running render's file size, and when it last grew
         self.last_check = 0.0  # when stalled() last ran
@@ -318,6 +319,10 @@ class App:
 
     def start_next(self) -> render.Job | None:
         src = Path(self.jobs[0])
+        if not src.parent.exists():  # drive unplugged or not unlocked yet; a folder you deleted stays queued
+            log.warning("%s isn't there right now, trying again in %s s", src.parent, RETRY_AFTER)
+            self.retry_later(str(src), RETRY_AFTER)
+            return None
         if not src.exists():
             log.warning("Replay is gone, skipping: %s", src)
             self.done_job(src)
@@ -341,19 +346,25 @@ class App:
         except (RuntimeError, OSError) as e:  # ffmpeg failed, or the new file is locked (antivirus, OneDrive)
             self.failed(job.src, str(e))
             return
+        self.to_blame = set(self.tries)  # this PC, disk and ffmpeg work: earlier failures were those clips'
         self.done_job(job.src)
 
     def failed(self, src: Path, why: str) -> None:
-        """A render didn't work: retry it after the others, give up after MAX_TRIES."""
+        """A render didn't work: retry it after the others. Give up after MAX_TRIES, but only once another clip
+        has rendered fine since: a fault that hits every clip (disk full, antivirus, GPU driver) drops none."""
         key = str(src)
         self.tries[key] = self.tries.get(key, 0) + 1
-        if self.tries[key] >= MAX_TRIES:
-            log.error("Giving up on %s after %s tries (the replay itself is untouched): %s", src, MAX_TRIES, why)
+        if self.tries[key] >= MAX_TRIES and key in self.to_blame:
+            log.error("Giving up on %s after %s tries (the replay itself is untouched): %s", src, self.tries[key], why)
             self.done_job(src)
             return
-        wait = RETRY_AFTER * self.tries[key]  # a fault that hits every clip (disk full) can't burn the queue
-        self.retry_at = time.monotonic() + wait
+        wait = RETRY_AFTER * min(self.tries[key], 10)  # at most 10 min apart
         log.warning("Render failed for %s, trying again in %s s after the other clips: %s", src, wait, why)
+        self.retry_later(key, wait)
+
+    def retry_later(self, key: str, wait: float) -> None:
+        """No render for wait s, then this clip goes after the others."""
+        self.retry_at = time.monotonic() + wait
         with self.jobs_lock:
             if key in self.jobs:
                 self.jobs.remove(key)
