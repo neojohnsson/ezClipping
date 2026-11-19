@@ -193,7 +193,9 @@ Each task ends with tests + lint green and a git commit.
   - Files: `build.ps1`, `THIRD-PARTY-NOTICES.md`, `README.md`, `SPEC.md`
 
 ### Checkpoint F
-- [ ] Tests + lint green, exe rebuilt and run by you once (clip → render)
+- [x] Tests + lint green, exe rebuilt and run by you once (clip → render). Done: 10:50 save → rendered 60 s after
+  the bar went away, in 31 s, with your winget ffmpeg. 1080x1920, 60 fps, H.264 + AAC, 81.22 s vs 81.24 s replay.
+  **GO.**
 - [x] Quick re-check of the changed areas: code-reviewer + security-auditor on 600c75f..HEAD. NO-GO, then fixed
   (a1e6f3e, 1d7f92a, 8353e0e), each reproduced by a failing test first, 135 -> 140 tests:
   stale ffmpeg path after a winget upgrade, relative winget paths without LOCALAPPDATA, broken winget alias did
