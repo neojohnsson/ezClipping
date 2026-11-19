@@ -19,8 +19,10 @@ It never renders while you're alive in a match. While it waits it uses next to n
 2. **OBS: turn on the replay buffer.** Settings > Output > Replay Buffer > tick *Enable Replay Buffer* and set
    *Maximum Replay Time* to how long you want each clip (30-60 s is good for Shorts). ezClipping starts the replay
    buffer for you whenever OBS is open.
-3. **Run `ezClipping.exe`.** Windows may say "Windows protected your PC" because the app isn't signed. Click
-   *More info* > *Run anyway*.
+3. **Give it its own folder, then run it.** Move `ezClipping.exe` into a folder of its own first, for example
+   `%LOCALAPPDATA%\Programs\ezClipping`, not Downloads: it starts with Windows from wherever it is. Check that its
+   SHA-256 matches the one on the release page. Windows may say "Windows protected your PC" because the app isn't
+   signed. Click *More info* > *Run anyway*.
 4. **Settings open by themselves.** Pick your clip button (any key or mouse button) and your in-game resolution,
    for example `2200 x 1440` or `-w 2200 -h 1440`. Click *Save*.
 5. **Check the health bar.** In the Firing Range, open Settings from the tray icon and click *Preview*. If the
@@ -37,7 +39,8 @@ It never renders while you're alive in a match. While it waits it uses next to n
 
 ## Troubleshooting
 
-- **Log:** `%APPDATA%\ezClipping\ezclipping.log`
+- **Log:** `%APPDATA%\ezClipping\ezclipping.log`. When asking for help, send only that file, not the whole folder:
+  `config.json` next to it can hold your OBS password.
 - **Nothing happens when I press my button:** is the tray icon red (OBS connected)? Is the replay buffer enabled in
   OBS? The log says why a save failed.
 - **The health bar is in the wrong place:** Settings > Calibrate.

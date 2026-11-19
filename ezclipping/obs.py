@@ -3,10 +3,11 @@
 import base64
 import io
 import json
+import logging
 import os
 import threading
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import obsws_python as obsws
 from obsws_python.error import OBSSDKError
@@ -16,6 +17,18 @@ from websocket import WebSocketException
 WS_CONFIG = Path(os.environ.get("APPDATA", "")) / "obs-studio" / "plugin_config" / "obs-websocket" / "config.json"
 # OBS closed, wrong password, dropped socket, a closing socket's empty reply (JSONDecodeError), a bad host
 CONNECT_ERRORS = (OSError, OBSSDKError, WebSocketException, ValueError)
+LOOPBACK = {"localhost", "127.0.0.1"}
+
+# obsws-python logs its connection parameters, password included, at INFO, and a traceback per failed retry
+for _noisy in ("obsws_python", "websocket"):
+    logging.getLogger(_noisy).setLevel(logging.CRITICAL)
+
+
+def local_path(path) -> bool:
+    """On a local drive like C:\\. Never a network share: just touching \\\\host\\share makes Windows
+    send your login hash to that host, so paths from OBS or queue.json must pass this first."""
+    drive = PureWindowsPath(path).drive
+    return len(drive) == 2 and drive[1] == ":"
 
 
 def valid_host(host: str) -> bool:
@@ -68,7 +81,7 @@ class Obs:
         scene = self.request("get_current_program_scene").current_program_scene_name
         height = round(width * self.canvas[1] / self.canvas[0])  # OBS stretches to exactly what we ask
         shot = self.request("get_source_screenshot", scene, "jpg", width, height, 90)
-        return Image.open(io.BytesIO(base64.b64decode(shot.image_data.split(",", 1)[1])))
+        return Image.open(io.BytesIO(base64.b64decode(shot.image_data.split(",", 1)[1])), formats=["JPEG"])
 
     @property
     def alive(self) -> bool:

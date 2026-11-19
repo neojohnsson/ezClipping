@@ -109,6 +109,13 @@ def load_config(path: Path = CONFIG) -> dict:
     return clean_config(read_json(path, {}))
 
 
+def connection_password(cfg: dict, ws: dict) -> str:
+    """The typed password, else OBS's own, but OBS's own only for this PC: never sent to another machine."""
+    if cfg["password"] is not None:
+        return cfg["password"]
+    return ws.get("password", "") if cfg["host"] in obs.LOOPBACK else ""
+
+
 def save_config(cfg: dict, path: Path = CONFIG) -> None:
     write_json(path, cfg)
 
@@ -200,7 +207,8 @@ class App:
         self.jobs_path = jobs_path
         self.jobs_lock = threading.Lock()
         saved = read_json(jobs_path, [])
-        self.jobs: list[str] = [j for j in saved if isinstance(j, str)] if isinstance(saved, list) else []
+        self.jobs: list[str] = ([j for j in saved if isinstance(j, str) and obs.local_path(j)]
+                                if isinstance(saved, list) else [])
 
     def obs_loop(self) -> None:
         """Stay connected to OBS forever: retry every 5 s while it's closed, reconnect when it comes back."""
@@ -216,9 +224,8 @@ class App:
         """One connect attempt, then stay until OBS goes away."""
         ws = obs.websocket_settings()
         port = self.cfg["port"] or ws.get("port", 4455)
-        password = ws.get("password", "") if self.cfg["password"] is None else self.cfg["password"]
         try:
-            conn = obs.Obs(self.cfg["host"], port, password, self.on_saved)
+            conn = obs.Obs(self.cfg["host"], port, connection_password(self.cfg, ws), self.on_saved)
         except obs.CONNECT_ERRORS as e:
             log.debug("OBS not reachable on port %s: %s", port, e)
             self.stop.wait(5)
@@ -267,6 +274,9 @@ class App:
             pass  # no sound device: the save itself still worked
 
     def on_saved(self, path: Path) -> None:
+        if not obs.local_path(path):
+            log.warning("Ignoring a replay that isn't on a local drive: %s", path)
+            return
         log.info("Replay saved, will render once you're out of the match: %s", path)
         self.last_seen = time.monotonic()  # you just clipped, so you're playing: restart the 60 s wait
         self.last_clips_dir = render.output_path(path).parent
@@ -406,7 +416,9 @@ class App:
         conn = self.conn
         if conn:
             try:
-                return Path(conn.request("get_record_directory").record_directory) / "vertical"
+                folder = conn.request("get_record_directory").record_directory
+                if obs.local_path(folder):
+                    return Path(folder) / "vertical"
             except obs.CONNECT_ERRORS:
                 pass
         return None
@@ -489,9 +501,6 @@ def main() -> None:
     if sys.stderr:  # no console when packaged with --noconsole
         handlers.append(logging.StreamHandler())
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", handlers=handlers)
-    # obsws-python logs the OBS password at INFO and a traceback per failed retry; obs_loop handles both
-    for noisy in ("obsws_python", "websocket"):
-        logging.getLogger(noisy).setLevel(logging.CRITICAL)
     threading.excepthook = lambda a: log.error("Thread %s crashed", a.thread, exc_info=(a.exc_type, a.exc_value,
                                                                                        a.exc_traceback))
     if not single_instance():
@@ -499,7 +508,8 @@ def main() -> None:
         return
     ctypes.windll.shcore.SetProcessDpiAwareness(1)  # sharp settings window on scaled displays
     cfg = load_config()
-    set_start_with_windows(cfg["start_with_windows"])  # also fixes the path if the exe was moved
+    if CONFIG.exists():  # first run: autostart is written on the first Save, after you've seen the checkbox
+        set_start_with_windows(cfg["start_with_windows"])  # also fixes the path if the exe was moved
     App(cfg).run()
 
 
