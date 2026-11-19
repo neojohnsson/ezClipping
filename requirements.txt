@@ -1,3 +1,6 @@
 obsws-python==1.8.1
 pystray==0.19.5
 Pillow==13.0.0
+# pulled in by the two above; pinned so every build bundles the same code
+websocket-client==1.9.2
+six==1.17.0

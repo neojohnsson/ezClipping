@@ -45,10 +45,10 @@ It never renders while you're alive in a match. While it waits it uses next to n
   OBS? The log says why a save failed.
 - **The health bar is in the wrong place:** Settings > Calibrate.
 
-## Licenses
+## License
 
-ezClipping includes FFmpeg (GPL v3, see `FFMPEG-LICENSE.txt`), built by gyan.dev from the official FFmpeg source:
-https://www.gyan.dev/ffmpeg/builds/ and https://ffmpeg.org/download.html.
+ezClipping is free software under the GNU General Public License v3 (`LICENSE`). It bundles FFmpeg and a few
+Python libraries under their own licenses: see `THIRD-PARTY-NOTICES.md`.
 
 ## Development
 
@@ -57,5 +57,13 @@ py -3.12 -m venv .venv; .venv\Scripts\pip install -r requirements.txt -r require
 .venv\Scripts\python -m ezclipping                    # run
 .venv\Scripts\python -m unittest discover -s tests    # test (needs ffmpeg + ffprobe on PATH)
 .venv\Scripts\ruff check .                            # lint
-.\build.ps1                                           # dist\ezClipping.exe
+.\build.ps1                                           # dist\ezClipping.exe + release zip + SHA256SUMS.txt
 ```
+
+### Releasing
+
+1. Bump `__version__` in `ezclipping/__init__.py`, run the tests, run `.\build.ps1`.
+2. Push the commit and tag it (`v0.1.0`); the repository is the source code GPLv3 asks you to offer.
+3. Make a GitHub release from the tag and attach `dist\ezClipping-<version>.zip`, `dist\SHA256SUMS.txt` and
+   `ffmpeg-8.0.tar.xz` from https://ffmpeg.org/releases/ (FFmpeg's GPL asks for its source next to the binary).
+4. Paste the SHA-256 lines into the release notes.
