@@ -10,6 +10,7 @@ It never renders while you're alive in a match. While it waits it uses next to n
 
 - Windows 10 or 11
 - OBS Studio 28 or newer
+- FFmpeg 7.1 or newer (free; ezClipping installs it for you with one click, see step 4)
 - Apex Legends (any resolution, stretched too)
 
 ## Setup (5 minutes)
@@ -23,8 +24,9 @@ It never renders while you're alive in a match. While it waits it uses next to n
    `%LOCALAPPDATA%\Programs\ezClipping`, not Downloads: it starts with Windows from wherever it is. Check that its
    SHA-256 matches the one on the release page. Windows may say "Windows protected your PC" because the app isn't
    signed. Click *More info* > *Run anyway*.
-4. **Settings open by themselves.** Pick your clip button (any key or mouse button) and your in-game resolution,
-   for example `2200 x 1440` or `-w 2200 -h 1440`. Click *Save*.
+4. **Settings open by themselves.** If FFmpeg isn't installed yet, click *Install ffmpeg*: a window opens and
+   winget installs it (or run `winget install Gyan.FFmpeg.Essentials` yourself). Then pick your clip button (any
+   key or mouse button) and your in-game resolution, for example `2200 x 1440` or `-w 2200 -h 1440`. Click *Save*.
 5. **Check the health bar.** In the Firing Range, open Settings from the tray icon and click *Preview*. If the
    health bar isn't framed right, click *Calibrate* and drag a box around it.
 
@@ -44,11 +46,13 @@ It never renders while you're alive in a match. While it waits it uses next to n
 - **Nothing happens when I press my button:** is the tray icon red (OBS connected)? Is the replay buffer enabled in
   OBS? The log says why a save failed.
 - **The health bar is in the wrong place:** Settings > Calibrate.
+- **Tray says "ffmpeg not installed":** open Settings and click *Install ffmpeg*. Clips you saved meanwhile wait
+  and render once it's there.
 
 ## License
 
-ezClipping is free software under the GNU General Public License v3 (`LICENSE`). It bundles FFmpeg and a few
-Python libraries under their own licenses: see `THIRD-PARTY-NOTICES.md`.
+ezClipping is free software under the GNU General Public License v3 (`LICENSE`). It bundles a few Python
+libraries under their own licenses (`THIRD-PARTY-NOTICES.md`, texts in `licenses`). FFmpeg is not included.
 
 ## Development
 
@@ -64,6 +68,5 @@ py -3.12 -m venv .venv; .venv\Scripts\pip install -r requirements.txt -r require
 
 1. Bump `__version__` in `ezclipping/__init__.py`, run the tests, run `.\build.ps1`.
 2. Push the commit and tag it (`v0.1.0`); the repository is the source code GPLv3 asks you to offer.
-3. Make a GitHub release from the tag and attach `dist\ezClipping-<version>.zip`, `dist\SHA256SUMS.txt` and
-   `ffmpeg-8.0.tar.xz` from https://ffmpeg.org/releases/ (FFmpeg's GPL asks for its source next to the binary).
+3. Make a GitHub release from the tag and attach `dist\ezClipping-<version>.zip` and `dist\SHA256SUMS.txt`.
 4. Paste the SHA-256 lines into the release notes.

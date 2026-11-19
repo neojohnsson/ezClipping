@@ -19,7 +19,7 @@ and the OBS Replay Buffer is saved. Once you're out of the match, the app turns 
 └──────────────┘
 ```
 
-Users: you first, then other Apex players (shareable single .exe, no Python/ffmpeg install needed).
+Users: you first, then other Apex players (shareable single .exe, no Python needed; ffmpeg installed with one click via winget).
 "Zero performance": nothing heavy ever runs while you're alive in a match.
 
 ### User stories / acceptance
@@ -36,7 +36,7 @@ Users: you first, then other Apex players (shareable single .exe, no Python/ffmp
 
 ## Assumptions (correct me now or I'll go with these)
 1. **Stack:** Python 3.12, tkinter (built in) for the settings window, `pystray` + `Pillow` for the tray and images,
-   `obsws-python` for obs-websocket v5. Packaged with PyInstaller as one .exe with ffmpeg bundled inside.
+   `obsws-python` for obs-websocket v5. Packaged with PyInstaller as one .exe. ffmpeg is not bundled: the user installs it (winget).
 2. **Clip button:** polls `GetAsyncKeyState` about 30x/s. No keyboard/mouse hooks, so no added input lag and nothing
    anti-cheat cares about. Cost is effectively zero.
 3. **OBS password:** auto-read from `%APPDATA%\obs-studio\plugin_config\obs-websocket\config.json` each connect.
@@ -81,7 +81,7 @@ A calibrated box always wins over the formula.
 - Python 3.12 (`py -3.12`)
 - Runtime deps: `obsws-python`, `pystray`, `Pillow` (pinned in `requirements.txt`)
 - Dev deps: `pyinstaller`, `ruff` (pinned in `requirements-dev.txt`)
-- ffmpeg 8 (gyan.dev essentials build) bundled in the .exe. GPL, which is fine for a free app; ship its license text.
+- ffmpeg 7.1+ installed by the user (`winget install Gyan.FFmpeg.Essentials`, offered from Settings). Found on PATH or in winget's folders.
 - OBS Studio 28+ (obs-websocket v5 is built in)
 
 ## Commands
@@ -90,7 +90,7 @@ Setup:  py -3.12 -m venv .venv; .venv\Scripts\pip install -r requirements.txt -r
 Run:    .venv\Scripts\python -m ezclipping
 Test:   .venv\Scripts\python -m unittest discover -s tests -v
 Lint:   .venv\Scripts\ruff check .
-Build:  .\build.ps1        # PyInstaller --onefile --noconsole, bundles vendor\ffmpeg.exe -> dist\ezClipping.exe
+Build:  .\build.ps1        # PyInstaller --onefile --noconsole -> dist\ezClipping.exe + release zip
 ```
 
 ## Project Structure
@@ -106,7 +106,7 @@ tests/
   test_render.py  filter graph math + real 3 s render checked with ffprobe
   test_hud.py     detector vs labeled frames
   fixtures/       a few real frames (in match / lobby / menu / summary) + short sample clip
-vendor/ffmpeg.exe (gitignored, copied in by build.ps1)
+vendor/ (gitignored, build.ps1 writes the icon there)
 requirements.txt, requirements-dev.txt, build.ps1, SPEC.md
 ```
 User data: `%APPDATA%\ezClipping\config.json` and `queue.json`.
@@ -157,9 +157,9 @@ def filter_graph(box: tuple[float, float, float, float]) -> str:
 7. Calibrate → Preview shows the dragged box as the health-bar overlay.
 8. Picks `h264_nvenc` on your PC, falls back to `libx264` when no GPU encoder works.
 9. Quit with clips queued → restart → they still render.
-10. `dist\ezClipping.exe` runs on a PC without Python or ffmpeg installed.
+10. `dist\ezClipping.exe` runs on a PC without Python. Without ffmpeg it says so, offers the winget install, and keeps clips queued.
 11. After a reboot it's in the tray, and it connects within ~5 s of OBS opening, with no clicks needed.
 
 ## Open Questions
 1. Only 2200x1440 is measured. Other resolutions come from the formula. Calibrate covers any miss, and a native 16:9 screenshot would confirm the formula.
-2. Bundled ffmpeg is GPL. Fine for free. If you ever sell it, swap to an LGPL build.
+2. ffmpeg isn't shipped, so its GPL source duty isn't ours. ezClipping itself is GPLv3 (obsws-python is GPL).

@@ -152,4 +152,47 @@ Each task ends with tests + lint green and a git commit.
   release files). Each bug was reproduced by a failing test first. 75 → 111 tests.
   Not done on purpose: code signing (paid; SHA-256 published instead), `--require-hashes`/pip-audit, Python 3.13,
   two dev-only nits. Unticking "auto" still copies OBS's password into config (same storage as OBS's own file).
-- [ ] /ship before you share it
+- [x] /ship run: NO-GO (gate can jam, no retry back-off, queue path normalization, tests touching real data,
+  ffmpeg source duty). Decision: users install ffmpeg themselves (winget); not bundled.
+
+## Phase 6: Release fixes (from /ship)
+
+- [x] **R1: Gate can't jam, failures back off**. Done (13af59e): job cleared before finish/cancel, OSError = failed
+  render, RETRY_AFTER x tries back-off, paths normalized, sleep isn't a hang. End-to-end gate test added.
+  - Does: clear the job before finishing/cancelling, and treat OSError in finish/cancel as a failed render.
+    Wait RETRY_AFTER x tries after a failure. Normalize queue paths on load. A start failure caused by the clip
+    counts toward its tries. Sleep/hibernate doesn't count as "hung".
+  - Verify: failing tests first for each (fake job with poll()=0 and a missing .part, etc.), plus an end-to-end
+    gate test: hidden 61 s → start, visible → pause, hidden 61 s → resume, done → dequeued.
+  - Files: `ezclipping/__main__.py`, `tests/test_retry.py`, `tests/test_gate.py`
+- [x] **R2: Tests isolated and honest**. Done (c21ecd8): no test touches real %APPDATA% or OBS config, 0 false
+  positives required, full libx264 render added, suite 21 s -> 15 s.
+  - Does: no test reads your real queue.json or OBS config. The bad-host test asserts the error is logged.
+    The HUD test needs 0 false positives, the pause test checks the file has data. Orphan test ~2 s.
+    Adds a full libx264 render test.
+  - Files: `tests/*`
+- [x] **R3: Settings and config safety**. Done (ee5b744): unreadable config never overwritten, save errors shown in
+  the window, registry errors logged, clip_key/host validated, leaving auto clears the password.
+  - Does: an unreadable config.json is never overwritten. Save and registry errors are logged and shown in the
+    window. clip_key must be capturable (no left/right mouse). Leaving "auto" clears the password. Host must
+    match `[A-Za-z0-9.-]`.
+  - Files: `ezclipping/__main__.py`, `ezclipping/settings.py`, `ezclipping/obs.py`, tests
+- [x] **R4: ffmpeg from the user**. Done (1152e91): PATH, registry user PATH or winget folders (never cwd), 7.1+
+  check, tray says missing, Install ffmpeg button, clips stay queued, protocol/format allow-list.
+  - Does: find ffmpeg on PATH or in winget's folders, and require 7.1+ (the layout needs it). If it's missing,
+    the tray says so and Settings shows an *Install ffmpeg* button that runs
+    `winget install Gyan.FFmpeg.Essentials` in a console window. Clips stay queued until ffmpeg is found.
+    ffmpeg may only open local files (`-protocol_whitelist file`).
+  - Files: `ezclipping/render.py`, `ezclipping/__main__.py`, `ezclipping/settings.py`, tests
+- [x] **R5: Release packaging**. Done: exe 57 -> 19.7 MB, no ffmpeg or JDK DLLs inside (checked with
+  pyi-archive_viewer). Zip: exe, LICENSE, README, notices, licenses\ (8 texts; Python's covers VCRUNTIME, OpenSSL,
+  Tcl/Tk). New exe started from C:\ at 49 MB. Your login autostart at 10:15 confirms the reboot check.
+  - Does: no ffmpeg in the exe. Build with a clean PATH (no JDK DLLs). A `licenses\` folder in the zip with every
+    bundled license text. Notices and README updated (ffmpeg install step).
+  - Verify: build, smoke-test the exe through Explorer, check zip contents.
+  - Files: `build.ps1`, `THIRD-PARTY-NOTICES.md`, `README.md`, `SPEC.md`
+
+### Checkpoint F
+- [ ] Tests + lint green, exe rebuilt and run by you once (clip → render)
+- [ ] Quick re-check of the changed areas, then GO / NO-GO
+- [ ] Publish to GitHub only after your OK (author email + test images decision first)
