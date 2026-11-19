@@ -51,7 +51,7 @@ class Files(unittest.TestCase):
     def test_queue_entries_that_are_not_paths_are_dropped(self):
         queue = self.dir / "queue.json"
         queue.write_text(json.dumps(["C:/Videos/a.mkv", 5, None, {"x": 1}]))
-        self.assertEqual(App(DEFAULTS, jobs_path=queue).jobs, ["C:/Videos/a.mkv"])
+        self.assertEqual(App(DEFAULTS, jobs_path=queue).jobs, [str(Path("C:/Videos/a.mkv"))])
 
     def test_output_never_overwrites_a_finished_clip(self):
         taken = self.dir / "Replay_vertical.mp4"

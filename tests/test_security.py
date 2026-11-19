@@ -29,7 +29,7 @@ class LocalPathsOnly(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             queue = Path(tmp) / "queue.json"
             queue.write_text('["C:/Videos/a.mkv", "\\\\\\\\attacker\\\\share\\\\b.mkv"]')
-            self.assertEqual(App(DEFAULTS, jobs_path=queue).jobs, ["C:/Videos/a.mkv"])
+            self.assertEqual(App(DEFAULTS, jobs_path=queue).jobs, [str(Path("C:/Videos/a.mkv"))])
 
 
 OBS_WS = {"port": 4455, "password": "obs-secret"}  # what OBS's own websocket config holds
