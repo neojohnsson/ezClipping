@@ -296,13 +296,17 @@ class Settings:
         if self.auto_var.get():
             new |= {"host": "localhost", "port": None, "password": None}
         else:
-            port = self.port_var.get().strip()
+            port, host = self.port_var.get().strip(), self.host_var.get().strip() or "localhost"
+            problem = None
             if not (port.isdigit() and 1 <= int(port) <= 65535):
-                self.obs_error.configure(text="Port is a number from 1 to 65535 (OBS's default is 4455).")
+                problem = "Port is a number from 1 to 65535 (OBS's default is 4455)."
+            elif not obs.valid_host(host):
+                problem = "Host is just a name or IP, like localhost. The port goes in Port."
+            if problem:
+                self.obs_error.configure(text=problem)
                 self.obs_error.pack(anchor="w", pady=(4, 0), after=self.status)
                 return
-            new |= {"host": self.host_var.get().strip() or "localhost", "port": int(port),
-                    "password": self.password_var.get()}
+            new |= {"host": host, "port": int(port), "password": self.password_var.get()}
         self.app.apply_settings(new)
         self.close()
 

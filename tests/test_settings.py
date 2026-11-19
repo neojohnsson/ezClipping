@@ -1,6 +1,7 @@
 import unittest
 
 from ezclipping.hotkey import VK_XBUTTON1, VK_XBUTTON2, key_name
+from ezclipping.obs import valid_host
 from ezclipping.settings import drag_to_box, parse_res
 
 
@@ -35,6 +36,16 @@ class ParseRes(unittest.TestCase):
     def test_impossible_sizes_are_rejected(self):
         self.assertIsNone(parse_res("10 x 10"))
         self.assertIsNone(parse_res("1440 x 2560"))  # portrait is not an Apex resolution
+
+
+class Host(unittest.TestCase):
+    def test_name_or_ip_is_fine(self):
+        self.assertTrue(valid_host("localhost"))
+        self.assertTrue(valid_host("192.168.1.20"))
+
+    def test_port_scheme_or_spaces_in_host_are_rejected(self):
+        for bad in ("127.0.0.1:4455", "ws://localhost", "my pc", ""):
+            self.assertFalse(valid_host(bad), bad)
 
 
 class KeyName(unittest.TestCase):

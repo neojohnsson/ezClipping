@@ -39,8 +39,12 @@ class Watch(unittest.TestCase):
         self.assertEqual(run_watch([], keys=[None, None, None]), 0)
 
     def test_changed_button_applies_on_next_poll(self):
-        # button unset for two polls (no key reads), then set; only the press after that counts
-        self.assertEqual(run_watch([DOWN, UP, DOWN, UP], keys=[None, None, 5, 5, 5, 5]), 2)
+        # button unset for two polls (no key reads), then set while held: only the next real press counts
+        self.assertEqual(run_watch([DOWN, UP, DOWN, UP], keys=[None, None, 5, 5, 5, 5]), 1)
+
+    def test_key_still_held_when_it_becomes_the_clip_button_does_not_save(self):
+        # you just picked it in settings and haven't let go yet
+        self.assertEqual(run_watch([DOWN, DOWN, DOWN, UP], keys=[None, 5, 5, 5, 5]), 0)
 
 
 class SavingConn:

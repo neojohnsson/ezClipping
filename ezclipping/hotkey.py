@@ -41,10 +41,13 @@ def key_name(vk: int | None) -> str:
 def watch(get_vk: Callable[[], int | None], on_press: Callable[[], None], stop: threading.Event,
           key_state: Callable[[int], int] = key_state, poll: float = POLL) -> None:
     """Call on_press once per press of the button get_vk() names (read every poll, so changes apply live)."""
-    was_down = False
+    was_down, last_vk = False, None
     while not stop.wait(poll):
         vk = get_vk()
         state = key_state(vk) if vk else 0
+        if vk != last_vk:  # new button (or settings just picked it): a key that's already held isn't a press
+            was_down, last_vk = bool(state & 0x8000), vk
+            continue
         if state & 0x8001 and not was_down:  # 0x8000 = held now, 0x0001 = tapped since the last poll
             try:
                 on_press()
