@@ -72,13 +72,11 @@ def write_json(path: Path, data) -> None:
 
 
 def read_json(path: Path, default):
-    """The file's JSON, or default. A damaged file is kept aside as *.bad.json, never overwritten."""
+    """The file's JSON, or default. A damaged file is kept aside as *.bad.json, never overwritten.
+    OSError if it exists but can't be read (locked, no permission): the caller must then never overwrite it."""
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        return default
-    except OSError as e:
-        log.error("Couldn't read %s: %s", path, e)
         return default
     try:
         return json.loads(text)
@@ -118,17 +116,6 @@ def connection_password(cfg: dict, ws: dict) -> str:
 
 def save_config(cfg: dict, path: Path = CONFIG) -> None:
     write_json(path, cfg)
-
-
-def unreadable(path: Path) -> bool:
-    """True if the file exists but can't be read (locked, no permission): then it must not be overwritten."""
-    try:
-        path.read_bytes()
-    except FileNotFoundError:
-        return False
-    except OSError:
-        return True
-    return False
 
 
 def clip_box(cfg: dict) -> Box:
@@ -200,7 +187,7 @@ def decide(clear: bool, rendering: bool, suspended: bool, waiting: bool) -> str:
 
 class App:
     def __init__(self, cfg: dict, jobs_path: Path, config_path: Path | None = None):
-        # jobs_path has no default so tests can't touch the real queue; config_path None = never write config
+        # jobs_path has no default so tests can't touch the real queue; a None path = never write that file
         self.cfg = cfg
         self.config_path = config_path
         self.stop = threading.Event()
@@ -218,9 +205,13 @@ class App:
         self.capturing = False  # settings window is waiting for a new clip button: don't save replays
         self.raise_settings = threading.Event()
         self.settings_thread: threading.Thread | None = None
-        self.jobs_path = jobs_path
+        self.jobs_path: Path | None = jobs_path
         self.jobs_lock = threading.Lock()
-        saved = read_json(jobs_path, [])
+        try:
+            saved = read_json(jobs_path, [])
+        except OSError as e:  # locked: its clips render next start, so don't save over them this session
+            log.error("Couldn't read %s, not saving the queue this session: %s", jobs_path, e)
+            saved, self.jobs_path = [], None
         # str(Path()) = the same spelling done_job() compares with, whatever slashes another program wrote
         self.jobs: list[str] = ([str(Path(j)) for j in saved if isinstance(j, str) and obs.local_path(j)]
                                 if isinstance(saved, list) else [])
@@ -307,6 +298,8 @@ class App:
                 self.save_jobs()
 
     def save_jobs(self) -> None:
+        if self.jobs_path is None:
+            return
         try:
             write_json(self.jobs_path, self.jobs)
         except OSError as e:  # disk full, antivirus lock: the queue in memory still has everything
@@ -547,11 +540,12 @@ def main() -> None:
         log.info("ezClipping is already running, not starting a second copy")
         return
     ctypes.windll.shcore.SetProcessDpiAwareness(1)  # sharp settings window on scaled displays
-    cfg = load_config()
-    config_path = None if unreadable(CONFIG) else CONFIG
-    if config_path is None:
-        log.error("Couldn't read %s: using defaults this session and not overwriting it", CONFIG)
-    elif CONFIG.exists():  # first run: autostart is written on the first Save, after you've seen the checkbox
+    try:
+        cfg, config_path = load_config(), CONFIG
+    except OSError as e:  # locked or no permission
+        cfg, config_path = dict(DEFAULTS), None
+        log.error("Couldn't read %s, using defaults this session and not overwriting it: %s", CONFIG, e)
+    if config_path and CONFIG.exists():  # first run: autostart is written on the first Save, after you've seen the checkbox
         try:
             set_start_with_windows(cfg["start_with_windows"])  # also fixes the path if the exe was moved
         except OSError as e:

@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 import ezclipping.__main__ as main
-from ezclipping.__main__ import DEFAULTS, App, clean_config, unreadable
+from ezclipping.__main__ import DEFAULTS, App, clean_config, load_config
 
 
 class ApplySettings(unittest.TestCase):
@@ -51,18 +51,25 @@ class ApplySettings(unittest.TestCase):
 
 
 class Unreadable(unittest.TestCase):
-    def test_missing_file_is_not_unreadable(self):
+    # One read decides both the settings and whether the file may be overwritten: two reads let a lock that
+    # passes in between give you defaults AND permission to save them over your real settings.
+    def test_missing_config_gives_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertFalse(unreadable(Path(tmp) / "config.json"))
+            self.assertEqual(load_config(Path(tmp) / "config.json"), DEFAULTS)
 
-    def test_normal_file_is_readable(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / "config.json").write_text("{}")
-            self.assertFalse(unreadable(Path(tmp) / "config.json"))
+    def test_config_that_cant_be_read_raises(self):
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaises(OSError):
+            load_config(Path(tmp))  # a folder can't be read as a file, like a locked one
 
-    def test_file_that_cant_be_read_is_unreadable(self):
+    def test_queue_that_cant_be_read_at_startup_is_never_overwritten(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertTrue(unreadable(Path(tmp)))  # a folder can't be read as a file, like a locked one
+            queue = Path(tmp) / "queue.json"
+            queue.write_text('["C:\\\\Videos\\\\Replay 1.mkv"]')
+            with mock.patch.object(Path, "read_text", side_effect=PermissionError("locked by antivirus")):
+                app = App(dict(DEFAULTS), jobs_path=queue)
+            app.on_saved(Path(r"C:\Videos\Replay 2.mkv"))  # the lock has passed by now
+            self.assertEqual(json.loads(queue.read_text()), [r"C:\Videos\Replay 1.mkv"])
+            self.assertEqual(app.jobs, [r"C:\Videos\Replay 2.mkv"])  # still renders this session
 
 
 class ConfigValues(unittest.TestCase):
