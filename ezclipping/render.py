@@ -110,6 +110,16 @@ def output_path(src: Path) -> Path:
     return src.parent / "vertical" / f"{src.stem}_vertical.mp4"
 
 
+def free_path(path: Path) -> Path:
+    """path, or 'name (2).mp4', 'name (3).mp4'... if taken: never overwrite a finished clip."""
+    n = 2
+    candidate = path
+    while candidate.exists():
+        candidate = path.with_name(f"{path.stem} ({n}){path.suffix}")
+        n += 1
+    return candidate
+
+
 @dataclass
 class Job:
     src: Path
@@ -122,7 +132,7 @@ class Job:
 def start(src: str | Path, box: Box) -> Job:
     """Start rendering src to <src folder>/vertical/<name>_vertical.mp4 at idle priority. Never touches src."""
     src = Path(src)
-    dst = output_path(src)
+    dst = free_path(output_path(src))
     dst.parent.mkdir(exist_ok=True)
     part = dst.with_suffix(".part.mp4")
     enc = detect_encoder()

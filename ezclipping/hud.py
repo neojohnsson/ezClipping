@@ -21,6 +21,21 @@ def box_for_res(w: int, h: int) -> Box:
     return (0.0406 / aspect, 0.896, 0.3056 / aspect, 0.0667)
 
 
+def valid_res(w: int, h: int) -> bool:
+    """A plausible in-game resolution (landscape, 640x480 up to 8K)."""
+    return 640 <= w <= 7680 and 480 <= h <= 4320 and w >= h
+
+
+def valid_box(box) -> bool:
+    """Four numbers that make a box inside the frame."""
+    if not isinstance(box, (list, tuple)) or len(box) != 4:
+        return False
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in box):
+        return False
+    x, y, w, h = box
+    return 0 <= x and 0 <= y and 0 < w and 0 < h and x + w <= 1 + 1e-9 and y + h <= 1 + 1e-9
+
+
 def visible(img: Image.Image, box: Box) -> bool:
     """True if the player's own HP bar is on screen, i.e. they're alive in a match.
 

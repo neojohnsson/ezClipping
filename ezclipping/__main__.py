@@ -16,7 +16,7 @@ import pystray
 from PIL import Image, ImageDraw
 
 from ezclipping import hotkey, obs, render, settings
-from ezclipping.hud import Box, box_for_res, visible
+from ezclipping.hud import Box, box_for_res, valid_box, valid_res, visible
 
 APP_DIR = Path(os.environ.get("APPDATA", "")) / "ezClipping"
 CONFIG = APP_DIR / "config.json"
@@ -43,18 +43,70 @@ SAVE_COOLDOWN = 5  # s; a second save right after one is the same footage, and a
 log = logging.getLogger("ezclipping")
 
 
-def load_config(path: Path = CONFIG) -> dict:
-    try:
-        return DEFAULTS | json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return dict(DEFAULTS)
+# Every value config.json may hold, and what counts as valid (other software can edit the file).
+CHECKS = {
+    "host": lambda v: isinstance(v, str) and obs.valid_host(v),
+    "port": lambda v: v is None or (type(v) is int and 1 <= v <= 65535),
+    "password": lambda v: v is None or isinstance(v, str),
+    "game_res": lambda v: (isinstance(v, list) and len(v) == 2 and all(type(n) is int for n in v)
+                           and valid_res(*v)),
+    "box": lambda v: v is None or valid_box(v),
+    "clip_key": lambda v: v is None or (type(v) is int and 1 <= v <= 254),
+    "beep": lambda v: isinstance(v, bool),
+    "auto_replay_buffer": lambda v: isinstance(v, bool),
+    "start_with_windows": lambda v: isinstance(v, bool),
+}
+_write_lock = threading.Lock()  # the tray and the settings window can both save at once
 
 
 def write_json(path: Path, data) -> None:
+    """Atomic and durable: a crash or power cut leaves either the old file or the new one."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    tmp.replace(path)  # never leave a half-written file behind
+    with _write_lock:
+        tmp = path.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        tmp.replace(path)
+
+
+def read_json(path: Path, default):
+    """The file's JSON, or default. A damaged file is kept aside as *.bad.json, never overwritten."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return default
+    except OSError as e:
+        log.error("Couldn't read %s: %s", path, e)
+        return default
+    try:
+        return json.loads(text)
+    except ValueError:
+        bad = path.with_suffix(".bad.json")
+        try:
+            path.replace(bad)
+        except OSError:
+            pass  # locked: it just stays where it is
+        log.error("%s was damaged; kept it as %s and started fresh", path.name, bad.name)
+        return default
+
+
+def clean_config(raw) -> dict:
+    """Defaults, overridden by every valid value in raw."""
+    cfg = dict(DEFAULTS)
+    if not isinstance(raw, dict):
+        return cfg
+    for key, value in raw.items():
+        if key in CHECKS and CHECKS[key](value):
+            cfg[key] = value
+        elif key in CHECKS:
+            log.warning("Ignoring an invalid %s in config.json", key)  # never log the value: could be the password
+    return cfg
+
+
+def load_config(path: Path = CONFIG) -> dict:
+    return clean_config(read_json(path, {}))
 
 
 def save_config(cfg: dict, path: Path = CONFIG) -> None:
@@ -147,10 +199,8 @@ class App:
         self.settings_thread: threading.Thread | None = None
         self.jobs_path = jobs_path
         self.jobs_lock = threading.Lock()
-        try:
-            self.jobs: list[str] = json.loads(jobs_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            self.jobs = []
+        saved = read_json(jobs_path, [])
+        self.jobs: list[str] = [j for j in saved if isinstance(j, str)] if isinstance(saved, list) else []
 
     def obs_loop(self) -> None:
         """Stay connected to OBS forever: retry every 5 s while it's closed, reconnect when it comes back."""

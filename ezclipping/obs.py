@@ -18,6 +18,11 @@ WS_CONFIG = Path(os.environ.get("APPDATA", "")) / "obs-studio" / "plugin_config"
 CONNECT_ERRORS = (OSError, OBSSDKError, WebSocketException, ValueError)
 
 
+def valid_host(host: str) -> bool:
+    """A bare host name or IP: no port, scheme, path or spaces (those belong in other fields)."""
+    return bool(host) and not any(c in host for c in ":/\\ \t") and len(host) <= 253
+
+
 def websocket_settings(path: Path = WS_CONFIG) -> dict:
     """Port, password and enabled flag from OBS's own websocket config, {} if it can't be read."""
     try:

@@ -8,7 +8,7 @@ from tkinter import ttk
 from PIL import Image, ImageTk
 
 from ezclipping import hotkey, obs, render
-from ezclipping.hud import Box, box_for_res, visible
+from ezclipping.hud import Box, box_for_res, valid_res, visible
 
 RESOLUTIONS = {
     "1920 x 1080  (16:9)": (1920, 1080),
@@ -31,7 +31,7 @@ def parse_res(text: str) -> tuple[int, int] | None:
     if not m:
         return None
     w, h = int(m[1]), int(m[2])
-    return (w, h) if 640 <= w <= 7680 and 480 <= h <= 4320 and w >= h else None
+    return (w, h) if valid_res(w, h) else None
 
 
 def drag_to_box(x0: float, y0: float, x1: float, y1: float, width: int, height: int) -> Box | None:
