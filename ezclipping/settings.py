@@ -106,7 +106,7 @@ class Settings:
         ws = obs.websocket_settings()
         self.auto_var = tk.BooleanVar(value=cfg["port"] is None and cfg["password"] is None)
         ttk.Checkbutton(body, text="Use OBS's own WebSocket settings (recommended)", variable=self.auto_var,
-                        command=self.toggle_auto).pack(anchor="w")
+                        command=self.auto_clicked).pack(anchor="w")
         grid = ttk.Frame(body)
         grid.pack(fill="x", pady=(6, 0))
         grid.columnconfigure(1, weight=1)
@@ -135,7 +135,8 @@ class Settings:
                           ("Start ezClipping with Windows", self.startup_var)]:
             ttk.Checkbutton(body, text=text, variable=var).pack(anchor="w", pady=1)
 
-        buttons = ttk.Frame(body)
+        self.save_error = ttk.Label(body, style="Error.TLabel", wraplength=WIDTH, justify="left")
+        buttons = self.buttons = ttk.Frame(body)
         buttons.pack(fill="x", pady=(18, 0))
         ttk.Button(buttons, text="Save", command=self.save, default="active").pack(side="right")
         ttk.Button(buttons, text="Cancel", command=self.close).pack(side="right", padx=(0, 8))
@@ -227,6 +228,12 @@ class Settings:
         ttk.Button(pad, text="Close", command=top.destroy).pack(anchor="e", pady=(10, 0))
         top.bind("<Escape>", lambda e: top.destroy())
 
+    def auto_clicked(self) -> None:
+        if not self.auto_var.get():
+            # Don't carry OBS's own password over: it's for this PC, and you may now type another host.
+            self.password_var.set("")
+        self.toggle_auto()
+
     def toggle_auto(self) -> None:
         auto = self.auto_var.get()
         if auto:  # show what OBS uses, read-only
@@ -307,7 +314,12 @@ class Settings:
                 self.obs_error.pack(anchor="w", pady=(4, 0), after=self.status)
                 return
             new |= {"host": host, "port": int(port), "password": self.password_var.get()}
-        self.app.apply_settings(new)
+        try:
+            self.app.apply_settings(new)
+        except OSError as e:
+            self.save_error.configure(text=f"Couldn't save your settings: {e}")
+            self.save_error.pack(anchor="w", pady=(10, 0), before=self.buttons)
+            return
         self.close()
 
     def close(self) -> None:

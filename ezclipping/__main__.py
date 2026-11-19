@@ -51,7 +51,7 @@ CHECKS = {
     "game_res": lambda v: (isinstance(v, list) and len(v) == 2 and all(type(n) is int for n in v)
                            and valid_res(*v)),
     "box": lambda v: v is None or valid_box(v),
-    "clip_key": lambda v: v is None or (type(v) is int and 1 <= v <= 254),
+    "clip_key": lambda v: v is None or (type(v) is int and v in hotkey.CAPTURABLE),  # never left/right mouse
     "beep": lambda v: isinstance(v, bool),
     "auto_replay_buffer": lambda v: isinstance(v, bool),
     "start_with_windows": lambda v: isinstance(v, bool),
@@ -118,6 +118,17 @@ def connection_password(cfg: dict, ws: dict) -> str:
 
 def save_config(cfg: dict, path: Path = CONFIG) -> None:
     write_json(path, cfg)
+
+
+def unreadable(path: Path) -> bool:
+    """True if the file exists but can't be read (locked, no permission): then it must not be overwritten."""
+    try:
+        path.read_bytes()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    return False
 
 
 def clip_box(cfg: dict) -> Box:
@@ -188,8 +199,10 @@ def decide(clear: bool, rendering: bool, suspended: bool, waiting: bool) -> str:
 
 
 class App:
-    def __init__(self, cfg: dict, jobs_path: Path):  # no default: tests must never touch the real queue
+    def __init__(self, cfg: dict, jobs_path: Path, config_path: Path | None = None):
+        # jobs_path has no default so tests can't touch the real queue; config_path None = never write config
         self.cfg = cfg
+        self.config_path = config_path
         self.stop = threading.Event()
         self.conn: obs.Obs | None = None
         self.last_save = -SAVE_COOLDOWN
@@ -455,21 +468,32 @@ class App:
         self.settings_thread = threading.Thread(target=settings.show, args=(self, tray_image(True)), daemon=True)
         self.settings_thread.start()
 
-    def apply_settings(self, new: dict) -> None:
-        """Called by the settings window on Save. Everything takes effect right away."""
-        reconnect = any(new.get(k, self.cfg[k]) != self.cfg[k] for k in ("host", "port", "password"))
+    def save_settings(self, new: dict) -> None:
+        """Write cfg + new to config.json, then use it. OSError if it couldn't be saved (nothing changes then)."""
+        if not self.config_path:
+            raise OSError("your settings file couldn't be read at startup, so it isn't overwritten. "
+                          "Restart ezClipping to try again")
+        save_config(self.cfg | new, self.config_path)
         self.cfg.update(new)
-        save_config(self.cfg)
-        set_start_with_windows(self.cfg["start_with_windows"])
+        try:
+            set_start_with_windows(self.cfg["start_with_windows"])
+        except OSError as e:
+            log.warning("Settings saved, but Start with Windows couldn't be updated: %s", e)
+
+    def apply_settings(self, new: dict) -> None:
+        """Called by the settings window on Save. Everything takes effect right away; OSError if not saved."""
+        reconnect = any(new.get(k, self.cfg[k]) != self.cfg[k] for k in ("host", "port", "password"))
+        self.save_settings(new)
         conn = self.conn
         if reconnect and conn:
             conn.close()  # obs_loop notices and reconnects with the new settings
         log.info("Settings saved")
 
     def toggle_start_with_windows(self) -> None:
-        self.cfg["start_with_windows"] = not self.cfg["start_with_windows"]
-        save_config(self.cfg)
-        set_start_with_windows(self.cfg["start_with_windows"])
+        try:
+            self.save_settings({"start_with_windows": not self.cfg["start_with_windows"]})
+        except OSError as e:
+            log.error("Couldn't change Start with Windows: %s", e)
 
     def tray_loop(self, icon: pystray.Icon) -> None:
         icon.visible = True
@@ -522,9 +546,15 @@ def main() -> None:
         return
     ctypes.windll.shcore.SetProcessDpiAwareness(1)  # sharp settings window on scaled displays
     cfg = load_config()
-    if CONFIG.exists():  # first run: autostart is written on the first Save, after you've seen the checkbox
-        set_start_with_windows(cfg["start_with_windows"])  # also fixes the path if the exe was moved
-    App(cfg, JOBS).run()
+    config_path = None if unreadable(CONFIG) else CONFIG
+    if config_path is None:
+        log.error("Couldn't read %s: using defaults this session and not overwriting it", CONFIG)
+    elif CONFIG.exists():  # first run: autostart is written on the first Save, after you've seen the checkbox
+        try:
+            set_start_with_windows(cfg["start_with_windows"])  # also fixes the path if the exe was moved
+        except OSError as e:
+            log.warning("Couldn't update Start with Windows: %s", e)
+    App(cfg, JOBS, config_path).run()
 
 
 if __name__ == "__main__":

@@ -47,6 +47,11 @@ class Host(unittest.TestCase):
         for bad in ("127.0.0.1:4455", "ws://localhost", "my pc", ""):
             self.assertFalse(valid_host(bad), bad)
 
+    def test_url_tricks_in_host_are_rejected(self):
+        # 'localhost@evil.com' would connect to evil.com while looking like localhost
+        for bad in ("localhost@evil.com", "host?x", "host#x", "a%20b", "a\r\nb"):
+            self.assertFalse(valid_host(bad), repr(bad))
+
 
 class KeyName(unittest.TestCase):
     def test_mouse_side_buttons_have_readable_names(self):

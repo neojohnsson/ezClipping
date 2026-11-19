@@ -5,6 +5,7 @@ import io
 import json
 import logging
 import os
+import re
 import threading
 from collections.abc import Callable
 from pathlib import Path, PureWindowsPath
@@ -32,8 +33,8 @@ def local_path(path) -> bool:
 
 
 def valid_host(host: str) -> bool:
-    """A bare host name or IP: no port, scheme, path or spaces (those belong in other fields)."""
-    return bool(host) and not any(c in host for c in ":/\\ \t") and len(host) <= 253
+    """A bare host name or IPv4 address. Allow-list: 'localhost@evil.com' and the like can't sneak through."""
+    return re.fullmatch(r"[A-Za-z0-9.-]{1,253}", host) is not None
 
 
 def websocket_settings(path: Path = WS_CONFIG) -> dict:
