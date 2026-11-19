@@ -1,5 +1,7 @@
+import tempfile
 import threading
 import unittest
+from pathlib import Path
 
 from ezclipping import hotkey
 from ezclipping.__main__ import DEFAULTS, SAVE_COOLDOWN, App
@@ -57,7 +59,9 @@ class SavingConn:
 
 class ClipButton(unittest.TestCase):
     def app(self):
-        app = App(DEFAULTS | {"beep": False})
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        app = App(DEFAULTS | {"beep": False}, jobs_path=Path(tmp.name) / "queue.json")
         app.conn = SavingConn()
         return app
 

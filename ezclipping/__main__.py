@@ -188,7 +188,7 @@ def decide(clear: bool, rendering: bool, suspended: bool, waiting: bool) -> str:
 
 
 class App:
-    def __init__(self, cfg: dict, jobs_path: Path = JOBS):
+    def __init__(self, cfg: dict, jobs_path: Path):  # no default: tests must never touch the real queue
         self.cfg = cfg
         self.stop = threading.Event()
         self.conn: obs.Obs | None = None
@@ -524,7 +524,7 @@ def main() -> None:
     cfg = load_config()
     if CONFIG.exists():  # first run: autostart is written on the first Save, after you've seen the checkbox
         set_start_with_windows(cfg["start_with_windows"])  # also fixes the path if the exe was moved
-    App(cfg).run()
+    App(cfg, JOBS).run()
 
 
 if __name__ == "__main__":

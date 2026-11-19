@@ -64,14 +64,13 @@ class Robustness(unittest.TestCase):
             gate.join(2)
         self.assertGreater(len(calls), 1)
 
-    def test_bad_host_does_not_kill_the_obs_loop(self):
-        app = app_in(self.tmp.name, host="127.0.0.1:4455")  # port typed into the host field
-        loop = threading.Thread(target=app.obs_loop, daemon=True)
-        loop.start()
-        time.sleep(0.5)
-        self.assertTrue(loop.is_alive())
-        app.stop.set()
-        loop.join(2)
+    def test_bad_host_is_an_ordinary_connection_failure(self):
+        # a port typed into the host field makes the URL unparseable (ValueError); one attempt must just retry
+        app = app_in(self.tmp.name, host="127.0.0.1:4455")
+        app.stop.set()  # so the 5 s retry wait returns at once
+        with mock.patch("ezclipping.obs.websocket_settings", return_value={}):  # never read the real OBS config
+            app.obs_session()
+        self.assertIsNone(app.conn)
 
     def test_clip_button_keeps_working_after_a_failing_press(self):
         stop, presses = threading.Event(), []

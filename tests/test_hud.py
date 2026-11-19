@@ -32,11 +32,11 @@ class RealFootage(unittest.TestCase):
         missed = [i for i, t in enumerate(tiles("hud_visible.png")) if not visible(t, box_in_tile())]
         self.assertEqual(missed, [], "tile indexes in hud_visible.png marked hidden")
 
-    def test_out_of_match_frames_are_hidden_at_least_95_percent(self):
-        # intros, loadout select, settings, death recap, kill replay, champion screen, black frames
-        frames = tiles("hud_hidden.png")
-        wrong = [i for i, t in enumerate(frames) if visible(t, box_in_tile())]
-        self.assertGreaterEqual(1 - len(wrong) / len(frames), 0.95, f"marked visible: {wrong}")
+    def test_every_out_of_match_frame_counts_as_hidden(self):
+        # lobby, pre-match, legend select, intros, loadout, settings, death recap, kill replay, champion, black.
+        # Every false "visible" restarts the 60 s wait, so even a few percent would stop renders.
+        wrong = [i for i, t in enumerate(tiles("hud_hidden.png")) if visible(t, box_in_tile())]
+        self.assertEqual(wrong, [], "tile indexes in hud_hidden.png marked visible")
 
     def test_works_on_jpeg_screenshots_like_obs_sends(self):
         def as_jpeg(tile):
@@ -45,10 +45,9 @@ class RealFootage(unittest.TestCase):
             return Image.open(buf)
 
         alive_missed = [i for i, t in enumerate(tiles("hud_visible.png")) if not visible(as_jpeg(t), box_in_tile())]
-        hidden = tiles("hud_hidden.png")
-        wrong = [i for i, t in enumerate(hidden) if visible(as_jpeg(t), box_in_tile())]
+        wrong = [i for i, t in enumerate(tiles("hud_hidden.png")) if visible(as_jpeg(t), box_in_tile())]
         self.assertEqual(alive_missed, [])
-        self.assertGreaterEqual(1 - len(wrong) / len(hidden), 0.95)
+        self.assertEqual(wrong, [])
 
     def test_check_is_fast(self):
         frames = tiles("hud_visible.png")

@@ -5,7 +5,14 @@ import winreg
 from pathlib import Path
 from types import SimpleNamespace
 
-from ezclipping.__main__ import DEFAULTS, App, set_start_with_windows, single_instance, starts_with_windows
+from ezclipping.__main__ import (
+    DEFAULTS,
+    App,
+    set_start_with_windows,
+    single_instance,
+    starts_with_windows,
+    startup_command,
+)
 
 TEST_RUN_KEY = r"Software\ezClipping-tests\Run"  # never the real Run key
 
@@ -44,6 +51,8 @@ class StartWithWindows(unittest.TestCase):
     def test_turning_on_registers_the_command(self):
         set_start_with_windows(True, key=TEST_RUN_KEY)
         self.assertTrue(starts_with_windows(key=TEST_RUN_KEY))
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, TEST_RUN_KEY) as k:
+            self.assertEqual(winreg.QueryValueEx(k, "ezClipping")[0], startup_command())
 
     def test_turning_off_removes_it(self):
         set_start_with_windows(True, key=TEST_RUN_KEY)

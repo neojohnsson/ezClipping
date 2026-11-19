@@ -6,6 +6,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from PIL import Image, ImageDraw
 
@@ -149,12 +150,16 @@ class PauseResumeCancel(unittest.TestCase):
     def test_paused_render_makes_no_progress_then_finishes_after_resume(self):
         with tempfile.TemporaryDirectory() as tmp:
             job = render.start(make_replay(Path(tmp), 2560, 1440, 6), box_for_res(2200, 1440))
-            time.sleep(0.5)
+            for _ in range(100):  # wait until ffmpeg is really writing, or "no growth" proves nothing
+                if job.part.exists() and job.part.stat().st_size > 0:
+                    break
+                time.sleep(0.02)
             render.suspend(job)
             time.sleep(0.3)  # let any in-flight write land
-            size = job.part.stat().st_size if job.part.exists() else 0
+            size = job.part.stat().st_size
+            self.assertGreater(size, 0)
             time.sleep(1.0)
-            self.assertEqual(job.part.stat().st_size if job.part.exists() else 0, size)
+            self.assertEqual(job.part.stat().st_size, size)
             self.assertIsNone(job.proc.poll())  # still alive, just paused
             render.resume(job)
             out = render.finish(job)
@@ -187,7 +192,7 @@ class Orphans(unittest.TestCase):
     def test_ffmpeg_dies_when_ezclipping_is_killed(self):
         # Task Manager "End task" kills only ezClipping; a paused ffmpeg left behind would lock the .part file
         with tempfile.TemporaryDirectory() as tmp:
-            replay = make_replay(Path(tmp), 2560, 1440, 20)
+            replay = make_replay(Path(tmp), 2560, 1440, 3)  # it's paused at once: length only has to outlast that
             script = (
                 "import sys, time; from ezclipping import render; from ezclipping.hud import box_for_res; "
                 f"job = render.start(r'{replay}', box_for_res(2200, 1440)); render.suspend(job); "
@@ -204,6 +209,15 @@ class Orphans(unittest.TestCase):
 
 
 class RenderOddSizes(unittest.TestCase):
+    def test_cpu_encoder_renders_a_whole_clip(self):
+        # the fallback for PCs without a working NVIDIA/AMD/Intel encoder; this PC always picks NVENC
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(render, "detect_encoder", return_value="libx264"):
+            out = render.render(make_replay(Path(tmp), 1920, 1080, 0.5), box_for_res(1920, 1080))
+            info = probe(out)
+        video = next(s for s in info["streams"] if s["codec_type"] == "video")
+        self.assertEqual((video["codec_name"], video["width"], video["height"]), ("h264", 1080, 1920))
+        self.assertAlmostEqual(float(info["format"]["duration"]), 0.5, delta=0.1)
+
     def test_1080p_source_renders(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = render.render(make_replay(Path(tmp), 1920, 1080, 0.5), box_for_res(1920, 1080))
