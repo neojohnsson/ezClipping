@@ -204,4 +204,7 @@ Each task ends with tests + lint green and a git commit.
   block on a stuck ffmpeg. build.ps1 now stops on Python failures. Exe rebuilt (19.7 MB), runs from C:\ at 49 MB.
   Not changed (out of scope for a local app): user-writable PATH folders, remote OBS host is unencrypted,
   hand-edited config with a remote host + port could get OBS's password on the next Save.
-- [ ] Publish to GitHub only after your OK (author email + test images decision first)
+- [ ] Publish to GitHub only after your OK. Decided: test images keep only the pixels the detector reads (names
+  and session ids blacked out, old versions too). Every commit's email is now the GitHub noreply address (history
+  rewritten, nothing was ever pushed). Backup of the old history: `..\ezClipping-before-rewrite.bundle`, delete it
+  once the push is done (it still has the unmasked images and your Gmail).
