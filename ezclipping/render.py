@@ -2,10 +2,12 @@
 
 import ctypes
 import functools
+import os
 import subprocess
 import sys
 import tempfile
 import time
+import winreg
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
@@ -14,8 +16,12 @@ from PIL import Image
 
 from ezclipping.hud import Box, box_for_res
 
-# the packaged exe carries its own ffmpeg (PyInstaller unpacks it to sys._MEIPASS); in dev, use the one on PATH
-FFMPEG = str(Path(sys._MEIPASS) / "ffmpeg.exe") if getattr(sys, "frozen", False) else "ffmpeg"
+WINGET_INSTALL = ["install", "--id", "Gyan.FFmpeg.Essentials", "-e", "--source", "winget",
+                  "--accept-package-agreements", "--accept-source-agreements"]
+# Replays are only ever real video files. Anything else (playlists, concat lists) could make ffmpeg open other
+# files or network shares, so only these demuxers and the plain file protocol are allowed for the input.
+INPUT_ALLOW = ["-protocol_whitelist", "file", "-format_whitelist", "matroska,webm,mov,mp4,m4a,3gp,3g2,mj2,flv,mpegts"]
+RECHECK_AFTER = 30  # s before looking for a missing ffmpeg again
 ENCODERS = ("h264_nvenc", "h264_amf", "h264_qsv", "libx264")
 ENCODER_ARGS = {"h264_nvenc": ["-preset", "p5"], "libx264": ["-preset", "veryfast"]}
 NO_WINDOW = subprocess.CREATE_NO_WINDOW
@@ -95,11 +101,69 @@ def filter_graph(box: Box) -> str:
     )
 
 
+def ffmpeg_candidates() -> list[Path]:
+    """Where an installed ffmpeg.exe may be: PATH, the user PATH as saved in the registry (fresh right after a
+    winget install, unlike our own copy), and winget's folders. Never the current folder or a relative path."""
+    dirs = os.environ.get("PATH", "").split(os.pathsep)
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+            dirs += os.path.expandvars(winreg.QueryValueEx(key, "Path")[0]).split(os.pathsep)
+    except OSError:
+        pass
+    found = [Path(d) / "ffmpeg.exe" for d in dirs if len(Path(d).drive) == 2 and Path(d).is_absolute()]
+    winget = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet"
+    found.append(winget / "Links" / "ffmpeg.exe")
+    found += sorted(winget.glob("Packages/Gyan.FFmpeg*/*/bin/ffmpeg.exe"), reverse=True)  # newest version first
+    return found
+
+
+def usable(exe: Path) -> bool:
+    """It runs and can do what the layout needs: scale to a second input's size (ffmpeg 7.1+)."""
+    test = [str(exe), "-v", "error", "-f", "lavfi", "-i", "color=s=32x32:d=0.1", "-f", "lavfi",
+            "-i", "color=s=16x16:d=0.1", "-filter_complex", "[0][1]scale=rw:rh", "-frames:v", "1", "-f", "null", "-"]
+    try:
+        return subprocess.run(test, check=False, capture_output=True, creationflags=NO_WINDOW,
+                              timeout=20).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def find_ffmpeg(candidates: list[Path] | None = None) -> str | None:
+    tried = set()
+    for exe in ffmpeg_candidates() if candidates is None else candidates:
+        if str(exe).lower() in tried or not exe.is_file():
+            continue
+        tried.add(str(exe).lower())
+        if usable(exe):
+            return str(exe)
+    return None
+
+
+_found: dict = {"path": None, "at": -RECHECK_AFTER}
+
+
+def ffmpeg(recheck: bool = False) -> str:
+    """Path of a usable ffmpeg. FileNotFoundError if none is installed (looked for again every 30 s)."""
+    if _found["path"] is None and (recheck or time.monotonic() - _found["at"] >= RECHECK_AFTER):
+        _found["path"], _found["at"] = find_ffmpeg(), time.monotonic()
+    if _found["path"] is None:
+        raise FileNotFoundError("ffmpeg 7.1 or newer isn't installed")
+    return _found["path"]
+
+
+def has_ffmpeg(recheck: bool = False) -> bool:
+    try:
+        ffmpeg(recheck)
+    except FileNotFoundError:
+        return False
+    return True
+
+
 @functools.cache
 def detect_encoder(candidates: tuple[str, ...] = ENCODERS) -> str:
     """First H.264 encoder that actually works on this PC (GPU ones first)."""
     for enc in candidates:
-        test = [FFMPEG, "-v", "error", "-f", "lavfi", "-i", "color=s=256x256:d=0.1", "-frames:v", "1",
+        test = [ffmpeg(), "-v", "error", "-f", "lavfi", "-i", "color=s=256x256:d=0.1", "-frames:v", "1",
                 "-c:v", enc, "-f", "null", "-"]
         if subprocess.run(test, check=False, capture_output=True, creationflags=NO_WINDOW).returncode == 0:
             return enc
@@ -137,7 +201,7 @@ def start(src: str | Path, box: Box) -> Job:
     part = dst.with_suffix(".part.mp4")
     enc = detect_encoder()
     cmd = [
-        FFMPEG, "-v", "error", "-nostdin", "-y", "-hwaccel", "d3d11va", "-i", str(src),
+        ffmpeg(), "-v", "error", "-nostdin", "-y", "-hwaccel", "d3d11va", *INPUT_ALLOW, "-i", str(src),
         "-filter_complex", filter_graph(box), "-map", "[out]", "-map", "0:a:0?",
         "-c:v", enc, *ENCODER_ARGS.get(enc, []), "-b:v", "20M", "-maxrate", "30M", "-bufsize", "40M",
         "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-f", "mp4", str(part),
@@ -201,7 +265,7 @@ def preview(frame: Image.Image, box: Box) -> Image.Image:
     with tempfile.TemporaryDirectory() as tmp:
         src, out = Path(tmp) / "frame.png", Path(tmp) / "preview.png"
         frame.convert("RGB").save(src)
-        subprocess.run([FFMPEG, "-v", "error", "-i", str(src), "-filter_complex", filter_graph(box),
+        subprocess.run([ffmpeg(), "-v", "error", "-i", str(src), "-filter_complex", filter_graph(box),
                         "-map", "[out]", "-frames:v", "1", str(out)],
                        check=True, capture_output=True, creationflags=NO_WINDOW)
         with Image.open(out) as img:

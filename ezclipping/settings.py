@@ -1,8 +1,10 @@
 """Settings window: clip button, in-game resolution, OBS connection, options. Native Windows look (ttk)."""
 
+import os
 import re
 import subprocess
 import tkinter as tk
+from pathlib import Path
 from tkinter import ttk
 
 from PIL import Image, ImageTk
@@ -22,6 +24,8 @@ RESOLUTIONS = {
 CUSTOM = "Custom"
 WIDTH = 400  # px, text wraps here
 HINT, ERROR, OK, ACCENT = "#55555f", "#b3261e", "#1e7e34", "#ff4655"
+# winget's own launcher, by full path: never whatever "winget.exe" happens to sit in the current folder
+WINGET = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WindowsApps" / "winget.exe"
 
 
 def parse_res(text: str) -> tuple[int, int] | None:
@@ -65,7 +69,22 @@ class Settings:
         body.pack(fill="both")
 
         # Clip button
-        self.heading("Clip button")
+        # Shown only while ffmpeg is missing (see refresh)
+        self.ffmpeg_box = ttk.Frame(body)
+        ttk.Label(self.ffmpeg_box, text="ffmpeg isn't installed. ezClipping needs it to make clips.",
+                  style="Error.TLabel", wraplength=WIDTH).pack(anchor="w")
+        self.ffmpeg_msg = ttk.Label(self.ffmpeg_box, style="Hint.TLabel", wraplength=WIDTH, justify="left")
+        if WINGET.is_file():
+            self.install = ttk.Button(self.ffmpeg_box, text="Install ffmpeg", command=self.install_ffmpeg)
+            self.install.pack(anchor="w", pady=(6, 0))
+            self.ffmpeg_msg.configure(text="Installs the free Gyan.FFmpeg.Essentials package with winget.")
+        else:
+            self.ffmpeg_msg.configure(text="Download it from gyan.dev/ffmpeg/builds and add its bin folder to "
+                                           "your PATH, or install winget and reopen this window.")
+        self.ffmpeg_msg.pack(anchor="w", pady=(4, 0))
+        self.installing, self.ticks = False, 0
+
+        self.top_heading = self.heading("Clip button")
         row = ttk.Frame(body)
         row.pack(fill="x")
         self.key_var = tk.StringVar(value=hotkey.key_name(self.clip_key))
@@ -150,8 +169,26 @@ class Settings:
         root.lift()
         root.focus_force()
 
-    def heading(self, text: str) -> None:
-        ttk.Label(self.body, text=text, style="Heading.TLabel").pack(anchor="w", pady=(14, 4))
+    def heading(self, text: str) -> ttk.Label:
+        label = ttk.Label(self.body, text=text, style="Heading.TLabel")
+        label.pack(anchor="w", pady=(14, 4))
+        return label
+
+    def install_ffmpeg(self) -> None:
+        # its own console window, so you see winget's progress and agreements
+        subprocess.Popen([str(WINGET), *render.WINGET_INSTALL], creationflags=subprocess.CREATE_NEW_CONSOLE)
+        self.installing = True
+        self.install.state(["disabled"])
+        self.ffmpeg_msg.configure(text="Installing in the window that just opened. This takes a minute or two; "
+                                       "this message goes away when ffmpeg is found.")
+
+    def refresh_ffmpeg(self) -> None:
+        self.ticks += 1
+        recheck = self.installing and self.ticks % 15 == 0  # every 3 s while winget runs
+        if render.has_ffmpeg(recheck):
+            self.ffmpeg_box.pack_forget()
+        elif not self.ffmpeg_box.winfo_ismapped():
+            self.ffmpeg_box.pack(fill="x", pady=(14, 0), before=self.top_heading)
 
     def hint(self, text: str) -> ttk.Label:
         label = ttk.Label(self.body, text=text, style="Hint.TLabel", wraplength=WIDTH, justify="left")
@@ -254,6 +291,7 @@ class Settings:
             self.root.deiconify()
             self.root.lift()
             self.root.focus_force()
+        self.refresh_ffmpeg()
         if self.app.conn:
             text, color = "Connected to OBS.", OK
         elif obs.websocket_settings().get("enabled") is False:

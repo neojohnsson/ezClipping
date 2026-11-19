@@ -433,6 +433,8 @@ class App:
         waiting = len(self.jobs) - (1 if self.job else 0)  # the clip being rendered is still in the queue
         if waiting:
             parts.append(f"{waiting} clip{'s' if waiting != 1 else ''} waiting")
+        if not render.has_ffmpeg():
+            parts.append("ffmpeg not installed (open Settings)")
         if not self.cfg["clip_key"]:
             parts.append("no clip button set")
         return "ezClipping: " + ", ".join(parts)
@@ -516,8 +518,8 @@ class App:
         for t in (gate, threading.Thread(target=self.obs_loop, daemon=True),
                   threading.Thread(target=hotkey.watch, args=(self.clip_key, self.on_press, self.stop), daemon=True)):
             t.start()
-        if not self.cfg["clip_key"]:
-            self.open_settings()  # first run: nothing works until a clip button is set
+        if not self.cfg["clip_key"] or not render.has_ffmpeg():
+            self.open_settings()  # first run, or ffmpeg missing: nothing works until that's sorted
         menu = pystray.Menu(
             pystray.MenuItem("Settings", self.open_settings),
             pystray.MenuItem("Open clips folder", self.open_clips_folder, default=True),

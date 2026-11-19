@@ -4,7 +4,9 @@ import uuid
 import winreg
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
+from ezclipping import render
 from ezclipping.__main__ import (
     DEFAULTS,
     App,
@@ -38,6 +40,10 @@ class Status(unittest.TestCase):
         app.jobs = ["a.mkv", "b.mkv"]
         app.job, app.suspended = SimpleNamespace(), True
         self.assertEqual(app.status(), "ezClipping: connected to OBS, rendering (paused: in a match), 1 clip waiting")
+
+    def test_tells_you_when_ffmpeg_is_missing(self):
+        with mock.patch.object(render, "has_ffmpeg", return_value=False):
+            self.assertEqual(self.app().status(), "ezClipping: waiting for OBS, ffmpeg not installed (open Settings)")
 
     def test_tells_new_users_to_set_a_clip_button(self):
         self.assertEqual(self.app(clip_key=None).status(), "ezClipping: waiting for OBS, no clip button set")
