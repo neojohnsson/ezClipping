@@ -23,6 +23,9 @@ CONFIG = APP_DIR / "config.json"
 JOBS = APP_DIR / "queue.json"  # replays waiting to be rendered, survives restarts
 CHECK_EVERY = 3  # s between health-bar checks (only while clips are waiting)
 CLEAR_AFTER = 60  # s without your health bar on screen before rendering starts
+MAX_TRIES = 3  # failed renders before a clip is given up on (the replay itself is never touched)
+RETRY_AFTER = 60  # s to wait when ffmpeg can't even start (missing ffmpeg, broken GPU driver)
+STALL_AFTER = 300  # s without the output growing (and not paused) = ffmpeg is hung
 DEFAULTS = {
     "host": "localhost",
     "port": None,  # None = read port/password from OBS's own websocket config on every connect
@@ -135,6 +138,9 @@ class App:
         self.job: render.Job | None = None  # the render in progress
         self.suspended = False
         self.was_visible: bool | None = None  # health bar state at the last check
+        self.tries: dict[str, int] = {}  # failed renders per replay, this session
+        self.retry_at = 0.0  # don't start a render before this (monotonic s)
+        self.last_size, self.last_growth = -1, 0.0  # running render's file size, and when it last grew
         self.last_clips_dir: Path | None = None
         self.capturing = False  # settings window is waiting for a new clip button: don't save replays
         self.raise_settings = threading.Event()
@@ -250,18 +256,47 @@ class App:
             return None
         log.info("Out of match: rendering %s", src.name)
         try:
-            return render.start(src, clip_box(self.cfg))
-        except (RuntimeError, OSError) as e:
-            log.error("Couldn't start rendering %s: %s", src, e)
-            self.done_job(src)
+            job = render.start(src, clip_box(self.cfg))
+        except (RuntimeError, OSError) as e:  # ffmpeg/encoder problem, not this clip's: keep it, try later
+            log.error("Couldn't start ffmpeg, trying again in %s s: %s", RETRY_AFTER, e)
+            self.retry_at = time.monotonic() + RETRY_AFTER
             return None
+        self.last_size, self.last_growth = -1, time.monotonic()
+        return job
 
     def finish(self, job: render.Job) -> None:
         try:
             log.info("Vertical clip ready: %s", render.finish(job))
         except RuntimeError as e:
-            log.error("Render failed for %s (the replay itself is untouched): %s", job.src, e)
+            self.failed(job.src, str(e))
+            return
         self.done_job(job.src)
+
+    def failed(self, src: Path, why: str) -> None:
+        """A render didn't work: retry it after the others, give up after MAX_TRIES."""
+        key = str(src)
+        self.tries[key] = self.tries.get(key, 0) + 1
+        if self.tries[key] >= MAX_TRIES:
+            log.error("Giving up on %s after %s tries (the replay itself is untouched): %s", src, MAX_TRIES, why)
+            self.done_job(src)
+            return
+        log.warning("Render failed for %s, will try again after the other clips: %s", src, why)
+        with self.jobs_lock:
+            if key in self.jobs:
+                self.jobs.remove(key)
+                self.jobs.append(key)
+                self.save_jobs()
+
+    def stalled(self, now: float) -> bool:
+        """True if the running render's file hasn't grown for STALL_AFTER s while not paused (hung ffmpeg)."""
+        try:
+            size = self.job.part.stat().st_size
+        except OSError:
+            size = 0
+        if self.suspended or size != self.last_size:
+            self.last_size, self.last_growth = size, now
+            return False
+        return now - self.last_growth > STALL_AFTER
 
     def gate_loop(self) -> None:
         """Render queued replays only while you're out of a match; pause the render if one starts."""
@@ -287,9 +322,13 @@ class App:
         if self.job and self.job.proc.poll() is not None:
             self.finish(self.job)
             self.job, self.suspended = None, False
+        elif self.job and self.stalled(time.monotonic()):
+            render.cancel(self.job)
+            self.failed(self.job.src, f"ffmpeg made no progress for {STALL_AFTER} s")
+            self.job, self.suspended = None, False
         clear = time.monotonic() - self.last_seen >= CLEAR_AFTER
         action = decide(clear, self.job is not None, self.suspended, bool(self.jobs))
-        if action == "start":
+        if action == "start" and time.monotonic() >= self.retry_at:
             self.job = self.start_next()
         elif action == "suspend":
             render.suspend(self.job)
